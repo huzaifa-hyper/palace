@@ -12,6 +12,7 @@ export class P2PService {
   private connections: Map<string, any> = new Map();
   private onMessageCallback: ((msg: NetworkMessage, connId: string) => void) | null = null;
   private onConnectionCallback: ((connId: string, metadata: any) => void) | null = null;
+  private onDisconnectionCallback: ((connId: string) => void) | null = null;
 
   public myPeerId: string | null = null;
 
@@ -63,8 +64,6 @@ export class P2PService {
       });
 
       this.peer.on('error', (err: any) => {
-        // Only reject if we haven't resolved yet (not strictly checking state here but safe enough)
-        // If error happens after open, global error handler catches it
         console.error('Peer error:', err);
         if (!this.myPeerId) {
             clearTimeout(timeout);
@@ -127,9 +126,11 @@ export class P2PService {
             reject(err);
         });
         
-        // Handle case where connection closes immediately
         conn.on('close', () => {
-             // If we haven't established a stable game yet, this might be a failure
+             // Handle host disconnect
+             if (this.onDisconnectionCallback) {
+                 this.onDisconnectionCallback('HOST');
+             }
         });
       });
       
@@ -156,7 +157,17 @@ export class P2PService {
 
       conn.on('close', () => {
         this.connections.delete(conn.peer);
-        // Handle disconnection logic here if needed
+        if (this.onDisconnectionCallback) {
+            this.onDisconnectionCallback(conn.peer);
+        }
+      });
+      
+      // Handle connection errors (often treated as close)
+      conn.on('error', () => {
+          this.connections.delete(conn.peer);
+          if (this.onDisconnectionCallback) {
+              this.onDisconnectionCallback(conn.peer);
+          }
       });
     });
   }
@@ -173,6 +184,23 @@ export class P2PService {
       hostConn.send(msg);
     }
   }
+  
+  public kickPeer(peerId: string) {
+      const conn = this.connections.get(peerId);
+      if (conn) {
+          if (conn.open) {
+              // Send message first
+              conn.send({ type: 'KICKED', payload: {} });
+              // Small delay to ensure message sends before close
+              setTimeout(() => {
+                  conn.close();
+                  this.connections.delete(peerId);
+              }, 100);
+          } else {
+              this.connections.delete(peerId);
+          }
+      }
+  }
 
   public onMessage(cb: (msg: NetworkMessage, connId: string) => void) {
     this.onMessageCallback = cb;
@@ -180,6 +208,10 @@ export class P2PService {
 
   public onPlayerConnected(cb: (connId: string, metadata: any) => void) {
     this.onConnectionCallback = cb;
+  }
+  
+  public onPlayerDisconnected(cb: (connId: string) => void) {
+      this.onDisconnectionCallback = cb;
   }
 
   public destroy() {
@@ -190,6 +222,7 @@ export class P2PService {
     this.connections.clear();
     this.onMessageCallback = null;
     this.onConnectionCallback = null;
+    this.onDisconnectionCallback = null;
   }
 }
 

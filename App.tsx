@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText } from 'lucide-react';
+import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
@@ -148,12 +148,18 @@ export default function App() {
         setConnectedPeers([{ id: 'HOST', name: userProfile?.name, isMe: true }]); // Add self
         setGameConfig({ mode: 'ONLINE_HOST', playerCount }); // Pre-set config but don't start
         
-        // Listen for players
+        // Listen for players joining
         p2pService.onPlayerConnected((id, metadata) => {
             setConnectedPeers(prev => {
-                const newList = [...prev, { id, name: metadata.name, isMe: false }];
-                return newList;
+                // Avoid duplicates
+                if (prev.some(p => p.id === id)) return prev;
+                return [...prev, { id, name: metadata.name, isMe: false }];
             });
+        });
+
+        // Listen for players leaving/disconnecting
+        p2pService.onPlayerDisconnected((id) => {
+             setConnectedPeers(prev => prev.filter(p => p.id !== id));
         });
 
     } catch (err) {
@@ -161,6 +167,12 @@ export default function App() {
         setWalletError("Failed to initialize Host. PeerJS server might be down or blocked by network.");
         setIsMatchmaking(false);
     }
+  };
+
+  const handleKickPlayer = (peerId: string) => {
+      p2pService.kickPeer(peerId);
+      // Optimistic UI update
+      setConnectedPeers(prev => prev.filter(p => p.id !== peerId));
   };
 
   const handleJoinGame = async () => {
@@ -176,14 +188,29 @@ export default function App() {
 
     try {
         await p2pService.initClient(joinCode, { name: userProfile?.name });
-        // Wait for Start Game signal from Host
+        
+        // Wait for signals from Host
         p2pService.onMessage((msg) => {
             if (msg.type === 'START_GAME') {
                 // Host started game
                 setGameConfig({ mode: 'ONLINE_CLIENT', playerCount: msg.payload.playerCount });
                 setIsMatchmaking(false);
+            } else if (msg.type === 'KICKED') {
+                // Handle being kicked
+                p2pService.destroy();
+                setIsMatchmaking(false);
+                setHostCode(null);
+                setJoinCode('');
+                setWalletError("You were kicked from the lobby by the host.");
             }
         });
+
+        // Handle if host disconnects abruptly
+        p2pService.onPlayerDisconnected(() => {
+             setIsMatchmaking(false);
+             setWalletError("Connection to host lost.");
+        });
+
     } catch (err) {
         console.error(err);
         setWalletError("Could not find game. Check the code.");
@@ -251,17 +278,29 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3 mb-8 text-left">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Players in Lobby</h3>
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Players ({connectedPeers.length}/{gameConfig?.playerCount})</h3>
+                    </div>
                     {connectedPeers.map((p, i) => (
-                        <div key={i} className="flex items-center gap-3 bg-slate-800 p-3 rounded-lg border border-white/5">
+                        <div key={i} className="flex items-center gap-3 bg-slate-800 p-3 rounded-lg border border-white/5 group">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${p.isMe ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
                                 {p.name.charAt(0)}
                             </div>
-                            <span className="text-slate-200 font-bold">{p.name} {p.isMe && '(You)'}</span>
-                            {i === 0 && <Crown className="w-4 h-4 text-amber-500 ml-auto" />}
+                            <span className="text-slate-200 font-bold flex-1 truncate">{p.name} {p.isMe && '(You)'}</span>
+                            {p.isMe ? (
+                                <Crown className="w-4 h-4 text-amber-500" />
+                            ) : (
+                                <button 
+                                    onClick={() => handleKickPlayer(p.id)}
+                                    className="p-1.5 rounded-full bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white transition-colors"
+                                    title="Kick Player"
+                                >
+                                    <Ban className="w-4 h-4" />
+                                </button>
+                            )}
                         </div>
                     ))}
-                    {Array.from({ length: Math.max(0, gameConfig!.playerCount - connectedPeers.length) }).map((_, i) => (
+                    {Array.from({ length: Math.max(0, (gameConfig?.playerCount || 4) - connectedPeers.length) }).map((_, i) => (
                          <div key={`wait-${i}`} className="flex items-center gap-3 bg-slate-800/50 p-3 rounded-lg border border-dashed border-slate-700">
                              <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center">
                                 <div className="w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin"></div>
