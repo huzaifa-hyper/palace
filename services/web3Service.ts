@@ -11,9 +11,6 @@ declare global {
   }
 }
 
-// Access ethers from global window object injected by UMD script
-const ethers = window.ethers;
-
 export interface Web3Response {
   success: boolean;
   address?: string;
@@ -81,8 +78,10 @@ export const web3Service = {
       return { success: false, message: "Metamask not installed" };
     }
     
+    // Dynamic access to ensure script has loaded
+    const ethers = window.ethers;
     if (!ethers) {
-        return { success: false, message: "Ethers.js library failed to load." };
+        return { success: false, message: "Ethers.js library failed to load. Please refresh." };
     }
 
     try {
