@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown } from 'lucide-react';
+import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
@@ -158,7 +158,7 @@ export default function App() {
 
     } catch (err) {
         console.error(err);
-        setWalletError("Failed to initialize Host. PeerJS server might be down.");
+        setWalletError("Failed to initialize Host. PeerJS server might be down or blocked by network.");
         setIsMatchmaking(false);
     }
   };
@@ -567,15 +567,87 @@ export default function App() {
         );
       case 'gameplay':
         return (
-           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="flex items-center gap-4 mb-4">
+           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0 max-w-4xl mx-auto">
+             <div className="flex items-center gap-4 mb-6">
                 <div className="bg-blue-500/20 p-3 rounded-xl">
-                  <BookOpen className="w-8 h-8 text-blue-500" />
+                  <FileText className="w-8 h-8 text-blue-500" />
                 </div>
-                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Rules of Engagement</h2>
+                <div>
+                   <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Official Rules</h2>
+                   <p className="text-slate-400 text-sm">The Laws of the Palace</p>
+                </div>
              </div>
-             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-6 text-slate-300 leading-relaxed whitespace-pre-line text-sm md:text-base">
-                {GAME_RULES_TEXT}
+             
+             <div className="grid gap-6">
+                {/* 1. Setup Phase */}
+                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
+                   <h3 className="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2">
+                      <Layers className="w-5 h-5" /> 1. The Setup
+                   </h3>
+                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
+                      <p>Each player is dealt:</p>
+                      <ul className="list-disc pl-5 space-y-1">
+                        <li><strong>3 Face-Down Cards</strong> (The Hidden Stack). Do not look at these!</li>
+                        <li><strong>6 Hand Cards.</strong></li>
+                      </ul>
+                      <p className="mt-2">From your hand, choose <strong>3 cards to place face-up</strong> on top of your hidden stack. These are your 'stronghold' cards.</p>
+                      <p className="text-slate-400 italic text-xs mt-2">Tip: Save high cards (A, K) or Power cards (2, 10) for your face-up pile.</p>
+                   </div>
+                </div>
+
+                {/* 2. Gameplay Loop */}
+                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
+                   <h3 className="text-xl font-bold text-blue-400 mb-4 flex items-center gap-2">
+                      <Play className="w-5 h-5" /> 2. The Battle
+                   </h3>
+                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
+                      <p><strong>Goal:</strong> Be the first to get rid of all your cards.</p>
+                      <p><strong>Turn Actions:</strong></p>
+                      <ol className="list-decimal pl-5 space-y-2">
+                        <li>Play a card equal to or higher than the top card of the pile.</li>
+                        <li>You can play multiple cards of the same rank at once (e.g., two 5s).</li>
+                        <li>If you cannot play, you must <strong>pick up the entire pile.</strong></li>
+                        <li><strong>Draw Rule:</strong> As long as the deck remains, you must draw cards to maintain at least 3 cards in your hand at all times.</li>
+                      </ol>
+                   </div>
+                </div>
+
+                {/* 3. Power Cards */}
+                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
+                   <h3 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2">
+                      <Zap className="w-5 h-5" /> 3. Power Cards
+                   </h3>
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-slate-950 p-4 rounded-xl border border-blue-500/20">
+                         <div className="font-bold text-blue-400 mb-1">2: The Reset</div>
+                         <p className="text-xs text-slate-400">Resets the pile value to 0. Can be played on anything. You take another turn.</p>
+                      </div>
+                      <div className="bg-slate-950 p-4 rounded-xl border border-emerald-500/20">
+                         <div className="font-bold text-emerald-400 mb-1">7: The Lower</div>
+                         <p className="text-xs text-slate-400">Forces the next player to play LOWER than or equal to 7.</p>
+                      </div>
+                      <div className="bg-slate-950 p-4 rounded-xl border border-orange-500/20">
+                         <div className="font-bold text-orange-400 mb-1">10: The Burn</div>
+                         <p className="text-xs text-slate-400">Explodes the pile. Cards are removed from play. You take another turn.</p>
+                      </div>
+                   </div>
+                </div>
+
+                {/* 4. Endgame */}
+                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
+                   <h3 className="text-xl font-bold text-red-400 mb-4 flex items-center gap-2">
+                      <Trophy className="w-5 h-5" /> 4. The Endgame
+                   </h3>
+                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
+                      <p>When the draw deck is empty:</p>
+                      <ul className="list-disc pl-5 space-y-2">
+                        <li>Play all cards from your hand until empty.</li>
+                        <li>Then, play from your <strong>Face-Up</strong> pile.</li>
+                        <li>Finally, play blindly from your <strong>Face-Down</strong> pile. Flip one card. If it's valid, you're safe. If not, pick up the pile!</li>
+                      </ul>
+                      <p className="font-bold text-amber-500 mt-2">First player with no cards wins!</p>
+                   </div>
+                </div>
              </div>
            </div>
         );
@@ -656,7 +728,7 @@ export default function App() {
           {[
             { id: 'lobby', label: 'Play Arena', icon: Play, special: true },
             { id: 'setup', label: 'Setup', icon: Layers },
-            { id: 'gameplay', label: 'Rules', icon: BookOpen },
+            { id: 'gameplay', label: 'Rules Sheet', icon: BookOpen },
             { id: 'power', label: 'Power Cards', icon: Zap },
             { id: 'endgame', label: 'Endgame', icon: Trophy },
             { id: 'arbiter', label: 'The Arbiter', icon: HelpCircle },

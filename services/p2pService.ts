@@ -28,7 +28,14 @@ export class P2PService {
     return new Promise((resolve, reject) => {
       // We use the short code as the Peer ID. 
       // Note: In a real prod app, you'd handle ID collisions.
-      this.peer = new Peer(`PALACE-${shortCode}`);
+      this.peer = new Peer(`PALACE-${shortCode}`, {
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+        }
+      });
 
       this.peer.on('open', (id: string) => {
         this.myPeerId = id;
@@ -53,7 +60,14 @@ export class P2PService {
     if (!Peer) throw new Error("PeerJS not loaded. Please refresh.");
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer(); // Let server assign random ID for client
+      this.peer = new Peer(undefined, {
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+        }
+      }); 
 
       this.peer.on('open', (id: string) => {
         this.myPeerId = id;
