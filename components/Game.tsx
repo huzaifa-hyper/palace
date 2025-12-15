@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Play, Users, RotateCcw, Trophy, Clock, Flame, ArrowDown, ChevronRight, Hand, Timer, Volume2, VolumeX, EyeOff, Eye, User, X, Globe, Check } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Suit, Rank, Card, Player, GamePhase, UserProfile, GameMode, GameStateSnapshot } from '../types';
@@ -91,11 +91,24 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const isClient = mode === 'ONLINE_CLIENT';
   const isOnline = isHost || isClient;
 
-  // Determine local player ID for Online modes
-  // We perform this check safely below in the render method to avoid crashes when players is empty
-  const myPlayerId = isClient 
-    ? players.findIndex(p => p.peerId === p2pService.myPeerId) 
-    : (isHost ? 0 : 0);
+  // --- Robust Identity Resolution ---
+  const myPlayerId = useMemo(() => {
+      if (players.length === 0) return -1;
+      
+      if (isHost) return 0; // Host is always player 0
+      
+      if (isClient) {
+          // Robust check for peerId
+          const myPeerId = p2pService.myPeerId;
+          if (!myPeerId) return -1;
+          return players.findIndex(p => p.peerId === myPeerId);
+      }
+      
+      if (mode === 'VS_BOT') return 0; // Player is always 0 against bots
+      if (mode === 'PASS_AND_PLAY') return turnIndex; // Identity follows turn
+      
+      return -1;
+  }, [isHost, isClient, mode, players, turnIndex]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -730,11 +743,15 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     
     // Check turn
     if (!players[turnIndex]) return;
-    // In online mode, check my ID vs turn ID
-    if (isOnline) {
-        if (turnIndex !== myPlayerId) return;
-    } else {
-        if (turnIndex !== players.findIndex(p => p.id === players[turnIndex].id)) return;
+
+    // Check Identity and Turn
+    if (myPlayerId === -1) {
+        console.warn("Player identity lost or not synchronized.");
+        return;
+    }
+
+    if (turnIndex !== myPlayerId) {
+        return; // Not your turn
     }
     
     const currentPlayer = players[turnIndex];
@@ -768,9 +785,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     // Safety check for invalid player ID during early init
     if (myPlayerId === -1 || !newPlayers[myPlayerId]) return;
 
-    const pIndex = isOnline ? myPlayerId : players.findIndex(p => p.isHuman && !p.hasSelectedSetup);
-    
-    if (pIndex === -1) return;
+    const pIndex = myPlayerId; // Use robust ID
     
     const p = newPlayers[pIndex];
     
@@ -788,12 +803,11 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   const confirmSetup = () => {
-    if (myPlayerId === -1 && isOnline) return;
+    if (myPlayerId === -1) return;
 
-    const pIndex = isOnline ? myPlayerId : players.findIndex(p => p.isHuman && !p.hasSelectedSetup);
-    if (pIndex === -1) return;
-    
+    const pIndex = myPlayerId;
     const p = players[pIndex];
+
     if (p.faceUpCards.length !== 3) {
       addLog("Select 3 cards first.");
       playSound('ERROR');
@@ -888,7 +902,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
 
   // --- Setup Phase Renderer ---
   // In Online mode, always show setup for 'me'
-  const activeSetupPlayer = isOnline ? players[myPlayerId] : players.find(p => p.isHuman && !p.hasSelectedSetup);
+  const activeSetupPlayer = isOnline && myPlayerId !== -1 ? players[myPlayerId] : players.find(p => p.isHuman && !p.hasSelectedSetup);
   
   if (phase === 'SETUP' && activeSetupPlayer && !activeSetupPlayer.hasSelectedSetup) {
     return (
