@@ -1,9 +1,16 @@
-import Peer, { DataConnection } from 'peerjs';
 import { NetworkMessage } from '../types';
 
+// Access Peer from global window object injected by UMD script
+declare global {
+    interface Window {
+      Peer: any;
+    }
+}
+const Peer = window.Peer;
+
 export class P2PService {
-  private peer: Peer | null = null;
-  private connections: Map<string, DataConnection> = new Map();
+  private peer: any | null = null;
+  private connections: Map<string, any> = new Map();
   private onMessageCallback: ((msg: NetworkMessage, connId: string) => void) | null = null;
   private onConnectionCallback: ((connId: string, metadata: any) => void) | null = null;
 
@@ -13,6 +20,8 @@ export class P2PService {
 
   // Initialize as Host
   public async initHost(): Promise<string> {
+    if (!Peer) throw new Error("PeerJS not loaded");
+    
     // Generate a short 4-char code for usability
     const shortCode = Math.random().toString(36).substring(2, 6).toUpperCase();
     
@@ -21,17 +30,17 @@ export class P2PService {
       // Note: In a real prod app, you'd handle ID collisions.
       this.peer = new Peer(`PALACE-${shortCode}`);
 
-      this.peer.on('open', (id) => {
+      this.peer.on('open', (id: string) => {
         this.myPeerId = id;
         console.log('Host initialized:', id);
         resolve(shortCode);
       });
 
-      this.peer.on('connection', (conn) => {
+      this.peer.on('connection', (conn: any) => {
         this.handleNewConnection(conn);
       });
 
-      this.peer.on('error', (err) => {
+      this.peer.on('error', (err: any) => {
         console.error('Peer error:', err);
         reject(err);
       });
@@ -40,10 +49,12 @@ export class P2PService {
 
   // Initialize as Client and Connect to Host
   public async initClient(hostCode: string, playerData: any): Promise<void> {
+    if (!Peer) throw new Error("PeerJS not loaded");
+
     return new Promise((resolve, reject) => {
       this.peer = new Peer(); // Let server assign random ID for client
 
-      this.peer.on('open', (id) => {
+      this.peer.on('open', (id: string) => {
         this.myPeerId = id;
         // Connect to host
         const conn = this.peer!.connect(`PALACE-${hostCode.toUpperCase()}`, {
@@ -52,7 +63,7 @@ export class P2PService {
 
         conn.on('open', () => {
           this.connections.set('HOST', conn);
-          conn.on('data', (data) => {
+          conn.on('data', (data: any) => {
             if (this.onMessageCallback) {
               this.onMessageCallback(data as NetworkMessage, 'HOST');
             }
@@ -60,14 +71,14 @@ export class P2PService {
           resolve();
         });
 
-        conn.on('error', (err) => reject(err));
+        conn.on('error', (err: any) => reject(err));
       });
       
-      this.peer.on('error', (err) => reject(err));
+      this.peer.on('error', (err: any) => reject(err));
     });
   }
 
-  private handleNewConnection(conn: DataConnection) {
+  private handleNewConnection(conn: any) {
     conn.on('open', () => {
       this.connections.set(conn.peer, conn);
       
@@ -75,7 +86,7 @@ export class P2PService {
         this.onConnectionCallback(conn.peer, conn.metadata);
       }
 
-      conn.on('data', (data) => {
+      conn.on('data', (data: any) => {
         if (this.onMessageCallback) {
           this.onMessageCallback(data as NetworkMessage, conn.peer);
         }

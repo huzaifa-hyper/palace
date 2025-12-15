@@ -1,5 +1,3 @@
-import { ethers } from 'ethers';
-
 // Soneium Minato Testnet Config
 export const SONEIUM_CHAIN_ID = 1946; // Decimal
 export const SONEIUM_CHAIN_ID_HEX = '0x79a'; // Hex representation of 1946
@@ -9,8 +7,12 @@ export const MIN_USD_REQUIREMENT = 0.25;
 declare global {
   interface Window {
     ethereum?: any;
+    ethers?: any;
   }
 }
+
+// Access ethers from global window object injected by UMD script
+const ethers = window.ethers;
 
 export interface Web3Response {
   success: boolean;
@@ -77,6 +79,10 @@ export const web3Service = {
   connectWallet: async (): Promise<Web3Response> => {
     if (!window.ethereum) {
       return { success: false, message: "Metamask not installed" };
+    }
+    
+    if (!ethers) {
+        return { success: false, message: "Ethers.js library failed to load." };
     }
 
     try {

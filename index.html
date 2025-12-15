@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Palace Rulers</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Ethers v6 and PeerJS globally via UMD to ensure stability -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
       body {
@@ -52,11 +56,7 @@
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
-    "ethers": "https://esm.sh/ethers@6.13.2",
-    "thirdweb": "https://esm.sh/thirdweb@5",
-    "thirdweb/wallets": "https://esm.sh/thirdweb@5/wallets",
-    "peerjs": "https://esm.sh/peerjs@1.5.4?bundle-deps"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0"
   }
 }
 </script>
