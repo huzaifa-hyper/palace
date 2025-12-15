@@ -102,6 +102,11 @@ export const web3Service = {
       const balanceUsd = parseFloat(balanceEth) * ethPrice;
       const isEligible = balanceUsd >= MIN_USD_REQUIREMENT;
 
+      // STRICT CHECK
+      if (!isEligible) {
+          console.warn(`Insufficient funds: ${balanceUsd} USD < ${MIN_USD_REQUIREMENT} USD`);
+      }
+
       return {
         success: true,
         address,
@@ -112,7 +117,7 @@ export const web3Service = {
 
     } catch (error: any) {
       console.error(error);
-      return { success: false, message: error.message || "Connection failed" };
+      return { success: false, message: error.message || "Connection failed", isEligible: false };
     }
   }
 };

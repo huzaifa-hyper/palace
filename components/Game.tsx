@@ -135,14 +135,20 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     });
   };
 
-  // --- Synchronization (Client Listen) ---
+  // --- Synchronization & Networking ---
   useEffect(() => {
     if (isClient) {
+        // Request sync immediately on mount to ensure we get the latest state
+        // this fixes the race condition where host broadcasts before we are ready
+        setTimeout(() => {
+            p2pService.sendToHost({ type: 'SYNC_REQUEST', payload: {} });
+        }, 500);
+
         p2pService.onMessage((msg) => {
             if (msg.type === 'SYNC_STATE') {
                 const state = msg.payload as GameStateSnapshot;
                 setPlayers(state.players);
-                // We don't get the deck, just count. Can't setDeck really, but we don't need it as client except logic
+                // We don't get the deck, just count.
                 setDeck(Array(state.deckCount).fill({} as Card)); 
                 setPile(state.pile);
                 setPileRotations(state.pileRotations);
@@ -153,7 +159,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
                 setWinner(state.winner);
                 setLogs(state.logs);
                 
-                // Audio triggers based on log changes (simple heuristic)
+                // Audio triggers
                 const lastLog = state.logs[state.logs.length - 1];
                 if (lastLog && !logs.includes(lastLog)) {
                     if (lastLog.includes('plays')) playSound('PLACE');
@@ -167,7 +173,14 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
 
     if (isHost) {
         p2pService.onMessage((msg, senderId) => {
-            if (msg.type === 'PLAY_CARD') {
+            if (msg.type === 'SYNC_REQUEST') {
+                // Client asked for state, send it
+                // We must send the CURRENT state refs, not stale ones
+                // Note: broadcastState uses state variables, which might be stale in this callback closure
+                // So we manually construct snapshot using the latest refs or rely on re-bind
+                // Since this effect re-runs on state change, `players` etc are fresh.
+                broadcastState();
+            } else if (msg.type === 'PLAY_CARD') {
                 // Find player index by senderId
                 const pIndex = players.findIndex(p => p.peerId === senderId);
                 if (pIndex !== -1 && pIndex === turnIndex) {
@@ -186,7 +199,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
             }
         });
     }
-  }, [isClient, isHost, players, turnIndex, logs]); // Dependencies needed for host logic lookup
+  }, [isClient, isHost, players, turnIndex, logs, pile, pileRotations, phase, activeConstraint, mustPlayAgain, winner, deck]); 
 
   // --- Timer Logic ---
   useEffect(() => {

@@ -82,7 +82,8 @@ export default function App() {
       setWalletError("Please connect your Soneium Minato wallet to play multiplayer.");
       return false;
     }
-    if (!wallet.isEligible) {
+    // Strict Double Check
+    if (!wallet.isEligible || (wallet.balanceUsdValue || 0) < 0.25) {
       setWalletError(`Insufficient Funds. You need at least $0.25 USD worth of Soneium ETH to play.`);
       return false;
     }
@@ -95,6 +96,9 @@ export default function App() {
     setWalletError(null);
     if (!checkMultiplayerEligibility()) return;
     
+    // Explicit safety cleanup
+    p2pService.destroy();
+
     setIsMatchmaking(true);
     setIsHost(true);
     
@@ -123,6 +127,9 @@ export default function App() {
     setWalletError(null);
     if (!checkMultiplayerEligibility()) return;
     if (joinCode.length !== 4) return;
+
+    // Explicit safety cleanup
+    p2pService.destroy();
 
     setIsMatchmaking(true);
     setIsHost(false);
