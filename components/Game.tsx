@@ -92,7 +92,11 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const isOnline = isHost || isClient;
 
   // Determine local player ID for Online modes
-  const myPlayerId = isClient ? players.findIndex(p => p.peerId === p2pService.myPeerId) : (isHost ? 0 : 0);
+  // If client, we try to find our ID based on PeerID. 
+  // If we can't find it yet (sync latency), we default to -1 which we must handle gracefully.
+  const myPlayerId = isClient 
+    ? players.findIndex(p => p.peerId === p2pService.myPeerId) 
+    : (isHost ? 0 : 0);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -140,15 +144,21 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     if (isClient) {
         // Request sync immediately on mount to ensure we get the latest state
         // this fixes the race condition where host broadcasts before we are ready
-        setTimeout(() => {
-            p2pService.sendToHost({ type: 'SYNC_REQUEST', payload: {} });
-        }, 500);
+        const syncInterval = setInterval(() => {
+            if (players.length === 0) {
+               p2pService.sendToHost({ type: 'SYNC_REQUEST', payload: {} });
+            } else {
+               clearInterval(syncInterval);
+            }
+        }, 1000);
+        
+        // Initial immediate request
+        p2pService.sendToHost({ type: 'SYNC_REQUEST', payload: {} });
 
         p2pService.onMessage((msg) => {
             if (msg.type === 'SYNC_STATE') {
                 const state = msg.payload as GameStateSnapshot;
                 setPlayers(state.players);
-                // We don't get the deck, just count.
                 setDeck(Array(state.deckCount).fill({} as Card)); 
                 setPile(state.pile);
                 setPileRotations(state.pileRotations);
@@ -169,16 +179,13 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
                 }
             }
         });
+        
+        return () => clearInterval(syncInterval);
     }
 
     if (isHost) {
         p2pService.onMessage((msg, senderId) => {
             if (msg.type === 'SYNC_REQUEST') {
-                // Client asked for state, send it
-                // We must send the CURRENT state refs, not stale ones
-                // Note: broadcastState uses state variables, which might be stale in this callback closure
-                // So we manually construct snapshot using the latest refs or rely on re-bind
-                // Since this effect re-runs on state change, `players` etc are fresh.
                 broadcastState();
             } else if (msg.type === 'PLAY_CARD') {
                 // Find player index by senderId
@@ -755,6 +762,9 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const handleHumanSetupToggle = (card: Card) => {
     const newPlayers = [...players];
     // In online mode, we only edit our own player
+    // Safety check for invalid player ID during early init
+    if (myPlayerId === -1 || !newPlayers[myPlayerId]) return;
+
     const pIndex = isOnline ? myPlayerId : players.findIndex(p => p.isHuman && !p.hasSelectedSetup);
     
     if (pIndex === -1) return;
@@ -775,6 +785,8 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   const confirmSetup = () => {
+    if (myPlayerId === -1 && isOnline) return;
+
     const pIndex = isOnline ? myPlayerId : players.findIndex(p => p.isHuman && !p.hasSelectedSetup);
     if (pIndex === -1) return;
     
@@ -847,6 +859,17 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       }
   };
 
+  // --- Safe Data Loading ---
+  // Ensure we have a valid player ID before rendering
+  if (isOnline && myPlayerId === -1 && players.length > 0) {
+      return (
+         <div className="flex flex-col items-center justify-center h-full w-full bg-slate-950 text-white">
+            <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p>Syncing Player Data...</p>
+         </div>
+      );
+  }
+
   // --- Setup Phase Renderer ---
   // In Online mode, always show setup for 'me'
   const activeSetupPlayer = isOnline ? players[myPlayerId] : players.find(p => p.isHuman && !p.hasSelectedSetup);
@@ -917,15 +940,24 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   if (isOnline) {
       // If I am player 1 in a 4 player game, I want player 1 at index 0 visual
       // visual index = (actual index - my index + total) % total
-      rotationOffset = myPlayerId;
+      rotationOffset = myPlayerId !== -1 ? myPlayerId : 0;
   }
   
   const getVisualIndex = (actualIndex: number) => {
       return (actualIndex - rotationOffset + players.length) % players.length;
   };
 
-  const bottomPlayer = isOnline ? players[myPlayerId] : (mode === 'PASS_AND_PLAY' ? players[turnIndex] : players[0]);
+  const bottomPlayer = isOnline ? (myPlayerId !== -1 ? players[myPlayerId] : players[0]) : (mode === 'PASS_AND_PLAY' ? players[turnIndex] : players[0]);
   
+  // Safety check: if bottomPlayer is still invalid, show loader
+  if (!bottomPlayer) {
+      return (
+       <div className="flex items-center justify-center h-full w-full bg-slate-950">
+          <div className="text-white">Connecting...</div>
+       </div>
+    );
+  }
+
   // Filter others to display at top
   // We need to order them visually clockwise
   const otherPlayers = players.filter(p => p.id !== bottomPlayer.id).sort((a, b) => {

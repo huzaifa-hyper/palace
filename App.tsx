@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X } from 'lucide-react';
+import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
 import { Suit, Rank, UserProfile, GameMode, WalletState } from './types';
 import { web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
+import { GAME_RULES_TEXT } from './constants';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'setup' | 'gameplay' | 'power' | 'endgame' | 'arbiter' | 'lobby'>('setup');
@@ -43,6 +44,43 @@ export default function App() {
     }
   }, []);
 
+  // --- Wallet Event Listeners ---
+  useEffect(() => {
+    if (window.ethereum) {
+      const handleAccountsChanged = (accounts: string[]) => {
+        if (accounts.length > 0) {
+          // Re-connect to update balance and eligibility for new account
+          handleConnectWallet();
+        } else {
+          // Disconnected
+          setWallet({
+            isConnected: false,
+            address: null,
+            balanceEth: null,
+            balanceUsdValue: null,
+            isEligible: false,
+            chainId: null
+          });
+        }
+      };
+
+      const handleChainChanged = () => {
+        // Page reload is recommended by Metamask on chain change, but we can just re-connect logic
+        handleConnectWallet();
+      };
+
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
+
+      return () => {
+        if (window.ethereum.removeListener) {
+          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
+      };
+    }
+  }, []);
+
   const handleCreateProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempName.trim()) return;
@@ -74,6 +112,8 @@ export default function App() {
       });
     } else {
       setWalletError(result.message || "Failed to connect wallet.");
+      // Ensure we clear connected state on failure
+      setWallet(prev => ({ ...prev, isConnected: false }));
     }
   };
 
@@ -497,213 +537,107 @@ export default function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'lobby': return renderLobby();
-
+      case 'lobby':
+        return renderLobby();
       case 'setup':
         return (
-          <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-            <div className="bg-slate-900/60 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl">
-              <h2 className="text-2xl md:text-3xl font-playfair font-bold text-amber-400 mb-6 flex items-center gap-3">
-                <Layers className="w-6 h-6 md:w-8 md:h-8 text-amber-500" /> The Foundation
-              </h2>
-              <p className="text-sm md:text-lg text-slate-300 leading-relaxed mb-8 font-light">
-                Before the battle begins, every ruler must fortify their palace. This formation is your final line of protection.
-              </p>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
-                <div className="space-y-6 text-sm md:text-base">
-                  <div className="flex items-start gap-4 group">
-                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-800 border border-slate-700 group-hover:border-amber-500/50 flex items-center justify-center shrink-0 font-bold text-amber-500 transition-colors">1</div>
-                    <p className="text-slate-300 pt-1 md:pt-2">Start with <strong>3 hidden cards</strong> (face-down). These are your last resort. No peeking.</p>
-                  </div>
-                  <div className="flex items-start gap-4 group">
-                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-800 border border-slate-700 group-hover:border-amber-500/50 flex items-center justify-center shrink-0 font-bold text-amber-500 transition-colors">2</div>
-                    <p className="text-slate-300 pt-1 md:pt-2">You receive <strong>7 cards</strong> for your hand.</p>
-                  </div>
-                  <div className="flex items-start gap-4 group">
-                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-800 border border-slate-700 group-hover:border-amber-500/50 flex items-center justify-center shrink-0 font-bold text-amber-500 transition-colors">3</div>
-                    <p className="text-slate-300 pt-1 md:pt-2">Strategically choose <strong>3 high-value cards</strong> from your hand to place face-up on your hidden pile.</p>
-                  </div>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
+             <div className="flex items-center gap-4 mb-4">
+                <div className="bg-amber-500/20 p-3 rounded-xl">
+                  <Layers className="w-8 h-8 text-amber-500" />
                 </div>
-
-                {/* Visualizer */}
-                <div className="relative h-56 md:h-72 bg-black/20 rounded-2xl border border-dashed border-slate-700/50 flex items-center justify-center p-4 overflow-hidden">
-                  <div className="absolute top-4 text-xs text-slate-500 uppercase tracking-[0.2em] font-bold">Stronghold Formation</div>
-                  
-                  {/* Hidden Cards */}
-                  <div className="flex gap-4 absolute top-16 opacity-60 scale-90 md:scale-100 transition-transform hover:scale-105 duration-500">
-                     <PlayingCard faceDown className="transform -rotate-6 shadow-lg" />
-                     <PlayingCard faceDown className="transform translate-y-2 shadow-lg" />
-                     <PlayingCard faceDown className="transform rotate-6 shadow-lg" />
+                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Game Setup</h2>
+             </div>
+             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-4 text-slate-300 leading-relaxed text-sm md:text-base">
+               <p>The game begins with a unique setup phase designed to build your defenses.</p>
+               <ul className="list-disc pl-6 space-y-3">
+                 <li><strong className="text-amber-400">3 Hidden Cards:</strong> Dealt face-down. These are your last line of defense. No peeking!</li>
+                 <li><strong className="text-amber-400">3 Face-Up Cards:</strong> You must strategically select 3 cards from your initial hand of 7 to place on top of your hidden cards.</li>
+                 <li><strong className="text-amber-400">The Hand:</strong> You keep the remaining 4 cards to start the battle.</li>
+               </ul>
+               <div className="bg-amber-900/20 p-4 rounded-xl border border-amber-500/20 text-amber-200 text-sm flex gap-3 mt-4">
+                  <div className="mt-1"><Crown className="w-4 h-4 text-amber-500" /></div>
+                  <div>
+                    <span className="font-bold block mb-1">Strategy Tip</span>
+                    Place high-value cards (Aces, Kings) or Power Cards (2, 10) in your face-up pile to ensure you can survive the end-game when you have no other options.
                   </div>
-
-                  {/* Face Up Cards */}
-                  <div className="flex gap-4 absolute top-20 z-10 scale-90 md:scale-100 transition-transform hover:scale-105 duration-500 hover:-translate-y-2">
-                     <PlayingCard suit={Suit.Diamonds} rank={Rank.King} className="transform -rotate-6 hover:rotate-0 transition-transform shadow-2xl" />
-                     <PlayingCard suit={Suit.Spades} rank={Rank.Ten} className="transform translate-y-2 hover:translate-y-0 transition-transform shadow-2xl" />
-                     <PlayingCard suit={Suit.Clubs} rank={Rank.Two} className="transform rotate-6 hover:rotate-0 transition-transform shadow-2xl" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex justify-center pb-8">
-              <button 
-                onClick={() => setActiveTab('lobby')}
-                className="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white px-10 py-4 rounded-full font-bold shadow-[0_0_30px_rgba(245,158,11,0.3)] flex items-center gap-3 transition-all hover:scale-105 hover:shadow-[0_0_50px_rgba(245,158,11,0.5)] text-lg"
-              >
-                Go to Arena Lobby <Play className="w-5 h-5 fill-current" />
-              </button>
-            </div>
+               </div>
+             </div>
           </div>
         );
-      
-      // ... keep other cases (gameplay, power, endgame, arbiter) same as before ...
-      // Just shortening for XML response size if needed, but since I have to return full file content:
-      
       case 'gameplay':
         return (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="bg-slate-900/60 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl">
-              <h2 className="text-2xl md:text-3xl font-playfair font-bold text-amber-400 mb-6 flex items-center gap-3">
-                <BookOpen className="w-6 h-6 md:w-8 md:h-8 text-amber-500" /> Rules of Engagement
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                 <div className="bg-slate-800/50 p-6 rounded-2xl border border-white/5 hover:border-amber-500/30 transition-colors">
-                    <h3 className="font-bold text-lg text-slate-200 mb-4 flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> Hierarchy</h3>
-                    <div className="flex items-center gap-3 text-lg md:text-2xl font-bold text-amber-500 flex-wrap font-playfair">
-                      <span>A</span>
-                      <span className="text-slate-600 text-sm">►</span>
-                      <span>K</span>
-                      <span className="text-slate-600 text-sm">►</span>
-                      <span>Q</span>
-                      <span className="text-slate-600 text-sm">►</span>
-                      <span>J</span>
-                      <span className="text-slate-600 text-sm">►</span>
-                      <span className="text-slate-400 text-base font-sans">#</span>
-                    </div>
-                    <p className="text-xs md:text-sm text-slate-400 mt-4 italic border-t border-slate-700/50 pt-2">"Suits hold no power here."</p>
-                 </div>
-                 <div className="bg-slate-800/50 p-6 rounded-2xl border border-white/5 hover:border-amber-500/30 transition-colors">
-                    <h3 className="font-bold text-lg text-slate-200 mb-4 flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> The Golden Rule</h3>
-                    <p className="text-slate-300 text-sm md:text-lg leading-relaxed">
-                      You must play a card <strong>equal to or higher</strong> than the current top card.
-                    </p>
-                 </div>
-              </div>
-
-              <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20 flex gap-5 items-start">
-                <div className="p-3 bg-red-500/20 rounded-full shrink-0">
-                   <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
+             <div className="flex items-center gap-4 mb-4">
+                <div className="bg-blue-500/20 p-3 rounded-xl">
+                  <BookOpen className="w-8 h-8 text-blue-500" />
                 </div>
-                <div>
-                  <h4 className="font-bold text-red-200 text-lg">The Penalty</h4>
-                  <p className="text-red-300/80 text-sm md:text-base mt-1">
-                    Cannot make a move? You must <strong>pick up the entire pile</strong> and add it to your hand.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Rules of Engagement</h2>
+             </div>
+             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-6 text-slate-300 leading-relaxed whitespace-pre-line text-sm md:text-base">
+                {GAME_RULES_TEXT}
+             </div>
+           </div>
         );
-
       case 'power':
         return (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="bg-slate-900/60 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl">
-              <h2 className="text-2xl md:text-3xl font-playfair font-bold text-amber-400 mb-8 flex items-center gap-3">
-                <Zap className="w-6 h-6 md:w-8 md:h-8 text-amber-500" /> Power Cards
-              </h2>
-              <p className="text-slate-300 mb-8 text-lg font-light">
-                These artifacts break the rules of hierarchy. Use them wisely.
-              </p>
-
-              <div className="grid gap-6">
-                {/* 2 - Reset */}
-                <div className="flex items-center gap-6 md:gap-8 bg-slate-800/50 p-6 rounded-2xl border border-white/5 hover:border-blue-500/50 transition-colors group">
-                  <div className="transform transition-transform group-hover:scale-110 group-hover:rotate-3 shrink-0">
-                     <PlayingCard rank={Rank.Two} suit={Suit.Clubs} className="scale-90 origin-left shadow-xl" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl md:text-2xl font-bold text-blue-100 font-playfair">The Reset (2)</h3>
-                    <p className="text-slate-400 mt-2 text-sm md:text-base leading-relaxed">
-                      Resets the pile's value. The slate is wiped clean, and you get to <strong>play again immediately</strong>.
-                    </p>
-                  </div>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
+             <div className="flex items-center gap-4 mb-4">
+                <div className="bg-purple-500/20 p-3 rounded-xl">
+                  <Zap className="w-8 h-8 text-purple-500" />
                 </div>
-
-                {/* 7 - Lower */}
-                <div className="flex items-center gap-6 md:gap-8 bg-slate-800/50 p-6 rounded-2xl border border-white/5 hover:border-emerald-500/50 transition-colors group">
-                  <div className="transform transition-transform group-hover:scale-110 group-hover:-rotate-3 shrink-0">
-                     <PlayingCard rank={Rank.Seven} suit={Suit.Diamonds} className="scale-90 origin-left shadow-xl" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl md:text-2xl font-bold text-emerald-100 font-playfair">The Limiter (7)</h3>
-                    <p className="text-slate-400 mt-2 text-sm md:text-base leading-relaxed">
-                      Reverses the hierarchy. The next player must play a card <strong>lower than 7</strong>.
-                    </p>
-                  </div>
-                </div>
-
-                {/* 10 - Burn */}
-                <div className="flex items-center gap-6 md:gap-8 bg-slate-800/50 p-6 rounded-2xl border border-white/5 hover:border-orange-500/50 transition-colors group">
-                   <div className="transform transition-transform group-hover:scale-110 group-hover:rotate-6 shrink-0">
-                     <PlayingCard rank={Rank.Ten} suit={Suit.Spades} className="scale-90 origin-left shadow-xl" />
+                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Power Cards</h2>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[
+                  { rank: Rank.Two, title: "The Reset", desc: "Resets the pile value. Play anytime. You take another turn immediately.", icon: <Zap className="w-8 h-8 text-blue-400" />, color: "border-blue-500/20" },
+                  { rank: Rank.Seven, title: "The Lower", desc: "Forces the next player to play a card LOWER than 7 (or another 7).", icon: <ArrowDown className="w-8 h-8 text-emerald-400" />, color: "border-emerald-500/20" },
+                  { rank: Rank.Ten, title: "The Burn", desc: "Burns the entire pile. Removed from game. You take another turn.", icon: <Flame className="w-8 h-8 text-orange-400" />, color: "border-orange-500/20" }
+                ].map((card, i) => (
+                   <div key={i} className={`bg-slate-900/50 p-6 rounded-2xl border ${card.color} flex flex-col items-center text-center gap-4 hover:bg-slate-800 transition-colors`}>
+                      <div className="bg-slate-950 p-4 rounded-full shadow-lg">{card.icon}</div>
+                      <h3 className="text-xl font-bold text-white">{card.title} ({card.rank})</h3>
+                      <p className="text-sm text-slate-400 min-h-[40px]">{card.desc}</p>
+                      <div className="scale-75 origin-center mt-2">
+                         <PlayingCard rank={card.rank} suit={Suit.Spades} />
+                      </div>
                    </div>
-                  <div>
-                    <h3 className="text-xl md:text-2xl font-bold text-orange-100 font-playfair">The Incinerator (10)</h3>
-                    <p className="text-slate-400 mt-2 text-sm md:text-base leading-relaxed">
-                      Completely removes the pile from the game. The current turn ends, and the next player starts fresh.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+                ))}
+             </div>
           </div>
         );
-
       case 'endgame':
-        return (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="bg-slate-900/60 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-white/5 shadow-2xl">
-              <h2 className="text-2xl md:text-3xl font-playfair font-bold text-amber-400 mb-6 flex items-center gap-3">
-                <Trophy className="w-6 h-6 md:w-8 md:h-8 text-amber-500" /> The Finale
-              </h2>
-              
-              <div className="space-y-8 text-sm md:text-base">
-                <div className="relative pl-10 border-l-2 border-slate-700/50">
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-700 border-4 border-slate-900"></div>
-                  <h3 className="text-lg md:text-xl font-bold text-slate-200">1. Exhaustion</h3>
-                  <p className="text-slate-400 mt-1">Empty your hand completely.</p>
+         return (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
+             <div className="flex items-center gap-4 mb-4">
+                <div className="bg-red-500/20 p-3 rounded-xl">
+                  <Trophy className="w-8 h-8 text-red-500" />
                 </div>
-
-                <div className="relative pl-10 border-l-2 border-slate-700/50">
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-amber-500 animate-pulse border-4 border-slate-900"></div>
-                  <h3 className="text-lg md:text-xl font-bold text-amber-400">2. The Stronghold</h3>
-                  <p className="text-slate-300 bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 mt-3 shadow-inner">
-                    When you have <strong>1 card</strong> left in hand, you pick up your 3 face-up cards.
-                  </p>
+                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">End Game</h2>
+             </div>
+             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-4 text-slate-300 text-sm md:text-base">
+                <p>When the draw deck is empty, the true test begins.</p>
+                <div className="grid gap-4">
+                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-500">
+                      <h3 className="font-bold text-white mb-1">1. Empty Hand</h3>
+                      <p className="text-sm text-slate-400">Once your hand is empty, you must pick up your 3 Face-Up cards to continue playing.</p>
+                   </div>
+                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-700">
+                      <h3 className="font-bold text-white mb-1">2. The Blind Faith</h3>
+                      <p className="text-sm text-slate-400">When Face-Up cards are gone, you play your 3 Hidden cards blindly. Flip one over on your turn. If it beats the pile, you're safe. If not, you pick up the pile!</p>
+                   </div>
+                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-900">
+                      <h3 className="font-bold text-white mb-1">3. Victory</h3>
+                      <p className="text-sm text-slate-400">The first player to have no cards in Hand, Face-Up, or Hidden piles wins the game.</p>
+                   </div>
                 </div>
-
-                <div className="relative pl-10 border-l-2 border-slate-700/50">
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-700 border-4 border-slate-900"></div>
-                  <h3 className="text-lg md:text-xl font-bold text-slate-200">3. Blind Faith</h3>
-                  <p className="text-slate-400 mt-1 leading-relaxed">
-                    Once face-up cards are gone, play the final 3 hidden cards blindly. Fate decides your victory.
-                  </p>
-                </div>
-              </div>
-            </div>
+             </div>
           </div>
-        );
-
+         );
       case 'arbiter':
-        return (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0 h-full">
-             <Arbiter />
-          </div>
-        );
+        return <Arbiter />;
+      default:
+        return renderLobby();
     }
   };
 
