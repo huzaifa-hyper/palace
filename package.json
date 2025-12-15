@@ -13,9 +13,9 @@
     "react-dom": "^19.2.1",
     "lucide-react": "^0.556.0",
     "@google/genai": "^1.32.0",
-    "ethers": "latest",
+    "ethers": "6.13.2",
     "thirdweb": "5",
-    "peerjs": "1.5.2"
+    "peerjs": "1.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
