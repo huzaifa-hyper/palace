@@ -92,23 +92,31 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const isOnline = isHost || isClient;
 
   // --- Robust Identity Resolution ---
+  const [localPeerId, setLocalPeerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Capture the Peer ID on mount to ensure it's available for identity resolution
+    if (p2pService.myPeerId) {
+        setLocalPeerId(p2pService.myPeerId);
+    }
+  }, []);
+
   const myPlayerId = useMemo(() => {
       if (players.length === 0) return -1;
       
       if (isHost) return 0; // Host is always player 0
       
       if (isClient) {
-          // Robust check for peerId
-          const myPeerId = p2pService.myPeerId;
-          if (!myPeerId) return -1;
-          return players.findIndex(p => p.peerId === myPeerId);
+          // Robust check for peerId using local state
+          if (!localPeerId) return -1;
+          return players.findIndex(p => p.peerId === localPeerId);
       }
       
       if (mode === 'VS_BOT') return 0; // Player is always 0 against bots
       if (mode === 'PASS_AND_PLAY') return turnIndex; // Identity follows turn
       
       return -1;
-  }, [isHost, isClient, mode, players, turnIndex]);
+  }, [isHost, isClient, mode, players, turnIndex, localPeerId]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -741,38 +749,44 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const handleCardClick = (card: Card, source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
     if (phase !== 'PLAYING') return;
     
-    // Check turn
-    if (!players[turnIndex]) return;
-
-    // Check Identity and Turn
+    // Check Identity - Must be defined
     if (myPlayerId === -1) {
         console.warn("Player identity lost or not synchronized.");
         return;
     }
 
-    if (turnIndex !== myPlayerId) {
-        return; // Not your turn
-    }
-    
+    // Identify current player turn
     const currentPlayer = players[turnIndex];
     if (mode !== 'ONLINE_HOST' && mode !== 'ONLINE_CLIENT' && !currentPlayer.isHuman) return;
-    
     if (mode === 'PASS_AND_PLAY' && !isHandRevealed) return;
 
+    // IMPORTANT: In Online mode, we only allow interactions with OUR cards.
+    // However, `handleCardClick` is only attached to our own cards in the render method (via bottomPlayer)
+    // So we implicitly know `card` belongs to us if this fires.
+
     if (source === 'HIDDEN') {
+      // For Hidden cards, we MUST strict check turn, because click = play
+      if (turnIndex !== myPlayerId) return;
       attemptPlayCards(turnIndex, [card], source);
       return;
     }
+
+    // For Hand/FaceUp, we allow selection (highlighting) even if not turn, for better UX.
+    // The actual PLAY action is guarded by the "Play" button which checks turn.
 
     if (selectedCardIds.includes(card.id)) {
        setSelectedCardIds(prev => prev.filter(id => id !== card.id));
        playSound('CLICK');
     } else {
-       const currentSelection = currentPlayer.hand.filter(c => selectedCardIds.includes(c.id));
+       // Logic: Can only select cards of same rank
+       const myHand = players[myPlayerId].hand;
+       const currentSelection = myHand.filter(c => selectedCardIds.includes(c.id));
+       
        if (currentSelection.length === 0 || currentSelection[0].rank === card.rank) {
           setSelectedCardIds([...selectedCardIds, card.id]);
           playSound('CLICK');
        } else {
+          // New selection replaces old
           setSelectedCardIds([card.id]);
           playSound('CLICK');
        }
@@ -780,24 +794,30 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   const handleHumanSetupToggle = (card: Card) => {
-    const newPlayers = [...players];
-    // In online mode, we only edit our own player
     // Safety check for invalid player ID during early init
-    if (myPlayerId === -1 || !newPlayers[myPlayerId]) return;
+    if (myPlayerId === -1 || !players[myPlayerId]) return;
 
-    const pIndex = myPlayerId; // Use robust ID
-    
+    // Use IMMUTABLE updates to ensure React re-renders correctly
+    const pIndex = myPlayerId;
+    const newPlayers = players.map(p => ({...p})); // Shallow clone array and objects
     const p = newPlayers[pIndex];
     
+    // Create new arrays for the props we are modifying
+    p.faceUpCards = [...p.faceUpCards];
+    p.hand = [...p.hand];
+    
     if (p.faceUpCards.find(c => c.id === card.id)) {
+      // Remove from faceup, add to hand
       p.faceUpCards = p.faceUpCards.filter(c => c.id !== card.id);
       p.hand.push(card);
     } else {
+      // Add to faceup, remove from hand
       if (p.faceUpCards.length < 3) {
         p.hand = p.hand.filter(c => c.id !== card.id);
         p.faceUpCards.push(card);
       }
     }
+    
     setPlayers(newPlayers);
     playSound('CLICK');
   };
@@ -814,7 +834,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       return;
     }
     const newPlayers = [...players];
-    newPlayers[pIndex].hasSelectedSetup = true;
+    newPlayers[pIndex] = { ...newPlayers[pIndex], hasSelectedSetup: true };
     setPlayers(newPlayers);
     
     if (isClient) {
@@ -852,9 +872,12 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const handleRemoteSetup = (pIndex: number, faceUpCards: Card[], hand: Card[]) => {
       // Host receives setup from client
       const newPlayers = [...players];
-      newPlayers[pIndex].faceUpCards = faceUpCards;
-      newPlayers[pIndex].hand = hand;
-      newPlayers[pIndex].hasSelectedSetup = true;
+      newPlayers[pIndex] = { 
+          ...newPlayers[pIndex], 
+          faceUpCards, 
+          hand, 
+          hasSelectedSetup: true 
+      };
       setPlayers(newPlayers);
 
       const allReady = newPlayers.every(pl => pl.hasSelectedSetup);
