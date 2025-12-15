@@ -26,18 +26,33 @@ export class P2PService {
     const shortCode = Math.random().toString(36).substring(2, 6).toUpperCase();
     
     return new Promise((resolve, reject) => {
-      // We use the short code as the Peer ID. 
-      // Note: In a real prod app, you'd handle ID collisions.
-      this.peer = new Peer(`PALACE-${shortCode}`, {
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-        }
-      });
+      // 10s timeout to prevent hanging
+      const timeout = setTimeout(() => {
+          if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+          }
+          reject(new Error("Connection to multiplayer server timed out. Check your internet connection."));
+      }, 10000);
+
+      try {
+        this.peer = new Peer(`PALACE-${shortCode}`, {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            },
+            debug: 1
+        });
+      } catch (e) {
+          clearTimeout(timeout);
+          reject(e);
+          return;
+      }
 
       this.peer.on('open', (id: string) => {
+        clearTimeout(timeout);
         this.myPeerId = id;
         console.log('Host initialized:', id);
         resolve(shortCode);
@@ -48,8 +63,13 @@ export class P2PService {
       });
 
       this.peer.on('error', (err: any) => {
+        // Only reject if we haven't resolved yet (not strictly checking state here but safe enough)
+        // If error happens after open, global error handler catches it
         console.error('Peer error:', err);
-        reject(err);
+        if (!this.myPeerId) {
+            clearTimeout(timeout);
+            reject(err);
+        }
       });
     });
   }
@@ -60,23 +80,39 @@ export class P2PService {
     if (!Peer) throw new Error("PeerJS not loaded. Please refresh.");
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer(undefined, {
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-        }
-      }); 
+      const timeout = setTimeout(() => {
+          if (this.peer) {
+              this.peer.destroy();
+              this.peer = null;
+          }
+          reject(new Error("Connection to multiplayer server timed out."));
+      }, 10000);
+
+      try {
+        this.peer = new Peer(undefined, {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            }
+        }); 
+      } catch (e) {
+        clearTimeout(timeout);
+        reject(e);
+        return;
+      }
 
       this.peer.on('open', (id: string) => {
         this.myPeerId = id;
         // Connect to host
         const conn = this.peer!.connect(`PALACE-${hostCode.toUpperCase()}`, {
-          metadata: playerData
+          metadata: playerData,
+          reliable: true
         });
 
         conn.on('open', () => {
+          clearTimeout(timeout);
           this.connections.set('HOST', conn);
           conn.on('data', (data: any) => {
             if (this.onMessageCallback) {
@@ -86,10 +122,21 @@ export class P2PService {
           resolve();
         });
 
-        conn.on('error', (err: any) => reject(err));
+        conn.on('error', (err: any) => {
+            clearTimeout(timeout);
+            reject(err);
+        });
+        
+        // Handle case where connection closes immediately
+        conn.on('close', () => {
+             // If we haven't established a stable game yet, this might be a failure
+        });
       });
       
-      this.peer.on('error', (err: any) => reject(err));
+      this.peer.on('error', (err: any) => {
+          clearTimeout(timeout);
+          reject(err);
+      });
     });
   }
 
@@ -141,6 +188,8 @@ export class P2PService {
       this.peer = null;
     }
     this.connections.clear();
+    this.onMessageCallback = null;
+    this.onConnectionCallback = null;
   }
 }
 

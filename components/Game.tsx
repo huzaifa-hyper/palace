@@ -92,8 +92,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const isOnline = isHost || isClient;
 
   // Determine local player ID for Online modes
-  // If client, we try to find our ID based on PeerID. 
-  // If we can't find it yet (sync latency), we default to -1 which we must handle gracefully.
+  // We perform this check safely below in the render method to avoid crashes when players is empty
   const myPlayerId = isClient 
     ? players.findIndex(p => p.peerId === p2pService.myPeerId) 
     : (isHost ? 0 : 0);
@@ -105,13 +104,17 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   // Sound Helper
   const playSound = (type: 'CLICK' | 'PLACE' | 'ERROR' | 'BURN' | 'RESET' | 'VICTORY') => {
     if (isMuted) return;
-    switch(type) {
-        case 'CLICK': audioService.playClick(); break;
-        case 'PLACE': audioService.playCardPlace(); break;
-        case 'ERROR': audioService.playError(); break;
-        case 'BURN': audioService.playBurn(); break;
-        case 'RESET': audioService.playReset(); break;
-        case 'VICTORY': audioService.playVictory(); break;
+    try {
+        switch(type) {
+            case 'CLICK': audioService.playClick(); break;
+            case 'PLACE': audioService.playCardPlace(); break;
+            case 'ERROR': audioService.playError(); break;
+            case 'BURN': audioService.playBurn(); break;
+            case 'RESET': audioService.playReset(); break;
+            case 'VICTORY': audioService.playVictory(); break;
+        }
+    } catch (e) {
+        console.warn("Audio failed to play", e);
     }
   };
 
@@ -860,12 +863,25 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   // --- Safe Data Loading ---
+  
+  // CRITICAL FIX: Ensure players exist before attempting to render logic
+  // This prevents blank screens when connecting/syncing
+  if (players.length === 0) {
+      return (
+         <div className="flex flex-col items-center justify-center h-full w-full bg-slate-950 text-white gap-4">
+            <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-amber-100 font-bold animate-pulse">Syncing Game State...</p>
+            {isClient && <p className="text-xs text-slate-500">Waiting for Host...</p>}
+         </div>
+      );
+  }
+
   // Ensure we have a valid player ID before rendering
   if (isOnline && myPlayerId === -1 && players.length > 0) {
       return (
          <div className="flex flex-col items-center justify-center h-full w-full bg-slate-950 text-white">
             <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p>Syncing Player Data...</p>
+            <p>Identifying Player...</p>
          </div>
       );
   }
@@ -926,15 +942,6 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   
   // --- Active Gameplay ---
 
-  // Safety check for initialization
-  if (players.length === 0 || !players[turnIndex]) {
-    return (
-       <div className="flex items-center justify-center h-full w-full bg-slate-950">
-          <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-       </div>
-    );
-  }
-
   // Visualization logic: Rotate so "Me" is at bottom
   let rotationOffset = 0;
   if (isOnline) {
@@ -943,9 +950,9 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       rotationOffset = myPlayerId !== -1 ? myPlayerId : 0;
   }
   
-  const getVisualIndex = (actualIndex: number) => {
-      return (actualIndex - rotationOffset + players.length) % players.length;
-  };
+  // const getVisualIndex = (actualIndex: number) => {
+  //    return (actualIndex - rotationOffset + players.length) % players.length;
+  // };
 
   const bottomPlayer = isOnline ? (myPlayerId !== -1 ? players[myPlayerId] : players[0]) : (mode === 'PASS_AND_PLAY' ? players[turnIndex] : players[0]);
   
@@ -959,9 +966,12 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   }
 
   // Filter others to display at top
-  // We need to order them visually clockwise
+  // We need to order them visually clockwise based on "Me" position
   const otherPlayers = players.filter(p => p.id !== bottomPlayer.id).sort((a, b) => {
-      return getVisualIndex(a.id) - getVisualIndex(b.id);
+      // Calculate relative visual index for each player
+      const visualIndexA = (a.id - rotationOffset + players.length) % players.length;
+      const visualIndexB = (b.id - rotationOffset + players.length) % players.length;
+      return visualIndexA - visualIndexB;
   });
 
   const getTableColor = () => {

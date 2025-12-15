@@ -25,7 +25,7 @@ export const web3Service = {
   getEthPrice: async (): Promise<number> => {
     try {
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
-      if (!response.ok) throw new Error('API limit');
+      if (!response.ok) return 2500;
       const data = await response.json();
       return data.ethereum.usd || 2500; 
     } catch (e) {
@@ -107,7 +107,8 @@ export const web3Service = {
       
       // 5. Calculate USD Value & Eligibility
       const ethPrice = await web3Service.getEthPrice();
-      const balanceUsd = parseFloat(balanceEth) * ethPrice;
+      // Ensure we don't return NaN
+      const balanceUsd = Math.max(0, parseFloat(balanceEth) * ethPrice) || 0;
       const isEligible = balanceUsd >= MIN_USD_REQUIREMENT;
 
       if (!isEligible) {
