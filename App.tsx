@@ -21,6 +21,7 @@ export default function App() {
   const [joinCode, setJoinCode] = useState('');
   const [connectedPeers, setConnectedPeers] = useState<any[]>([]);
   const [isHost, setIsHost] = useState(false);
+  const [myPeerId, setMyPeerId] = useState<string | null>(null);
   
   const [walletError, setWalletError] = useState<string | null>(null);
 
@@ -141,11 +142,18 @@ export default function App() {
 
     setIsMatchmaking(true);
     setIsHost(true);
+    setMyPeerId(null);
     
     try {
         const code = await p2pService.initHost();
         setHostCode(code);
-        setConnectedPeers([{ id: 'HOST', name: userProfile?.name, isMe: true }]); // Add self
+        
+        // Capture peer ID after init
+        if (p2pService.myPeerId) {
+            setMyPeerId(p2pService.myPeerId);
+            setConnectedPeers([{ id: p2pService.myPeerId, name: userProfile?.name, isMe: true }]); // Add self
+        }
+        
         setGameConfig({ mode: 'ONLINE_HOST', playerCount }); // Pre-set config but don't start
         
         // Listen for players joining
@@ -185,10 +193,15 @@ export default function App() {
 
     setIsMatchmaking(true);
     setIsHost(false);
+    setMyPeerId(null);
 
     try {
         await p2pService.initClient(joinCode, { name: userProfile?.name });
         
+        if (p2pService.myPeerId) {
+            setMyPeerId(p2pService.myPeerId);
+        }
+
         // Wait for signals from Host
         p2pService.onMessage((msg) => {
             if (msg.type === 'START_GAME') {
@@ -235,6 +248,7 @@ export default function App() {
       setHostCode(null);
       setConnectedPeers([]);
       setJoinCode('');
+      setMyPeerId(null);
   };
 
   const exitGame = () => {
@@ -242,6 +256,7 @@ export default function App() {
     setGameConfig(null);
     setHostCode(null);
     setConnectedPeers([]);
+    setMyPeerId(null);
     setActiveTab('lobby');
   };
 
@@ -254,6 +269,7 @@ export default function App() {
         playerCount={gameConfig.playerCount} 
         userProfile={userProfile}
         connectedPeers={isHost ? connectedPeers : undefined}
+        myPeerId={myPeerId || undefined}
         onExit={exitGame}
       />
     );
@@ -678,166 +694,4 @@ export default function App() {
                       <Trophy className="w-5 h-5" /> 4. The Endgame
                    </h3>
                    <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
-                      <p>When the draw deck is empty:</p>
-                      <ul className="list-disc pl-5 space-y-2">
-                        <li>Play all cards from your hand until empty.</li>
-                        <li>Then, play from your <strong>Face-Up</strong> pile.</li>
-                        <li>Finally, play blindly from your <strong>Face-Down</strong> pile. Flip one card. If it's valid, you're safe. If not, pick up the pile!</li>
-                      </ul>
-                      <p className="font-bold text-amber-500 mt-2">First player with no cards wins!</p>
-                   </div>
-                </div>
-             </div>
-           </div>
-        );
-      case 'power':
-        return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="flex items-center gap-4 mb-4">
-                <div className="bg-purple-500/20 p-3 rounded-xl">
-                  <Zap className="w-8 h-8 text-purple-500" />
-                </div>
-                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Power Cards</h2>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
-                  { rank: Rank.Two, title: "The Reset", desc: "Resets the pile value. Play anytime. You take another turn immediately.", icon: <Zap className="w-8 h-8 text-blue-400" />, color: "border-blue-500/20" },
-                  { rank: Rank.Seven, title: "The Lower", desc: "Forces the next player to play a card LOWER than 7 (or another 7).", icon: <ArrowDown className="w-8 h-8 text-emerald-400" />, color: "border-emerald-500/20" },
-                  { rank: Rank.Ten, title: "The Burn", desc: "Burns the entire pile. Removed from game. You take another turn.", icon: <Flame className="w-8 h-8 text-orange-400" />, color: "border-orange-500/20" }
-                ].map((card, i) => (
-                   <div key={i} className={`bg-slate-900/50 p-6 rounded-2xl border ${card.color} flex flex-col items-center text-center gap-4 hover:bg-slate-800 transition-colors`}>
-                      <div className="bg-slate-950 p-4 rounded-full shadow-lg">{card.icon}</div>
-                      <h3 className="text-xl font-bold text-white">{card.title} ({card.rank})</h3>
-                      <p className="text-sm text-slate-400 min-h-[40px]">{card.desc}</p>
-                      <div className="scale-75 origin-center mt-2">
-                         <PlayingCard rank={card.rank} suit={Suit.Spades} />
-                      </div>
-                   </div>
-                ))}
-             </div>
-          </div>
-        );
-      case 'endgame':
-         return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="flex items-center gap-4 mb-4">
-                <div className="bg-red-500/20 p-3 rounded-xl">
-                  <Trophy className="w-8 h-8 text-red-500" />
-                </div>
-                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">End Game</h2>
-             </div>
-             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-4 text-slate-300 text-sm md:text-base">
-                <p>When the draw deck is empty, the true test begins.</p>
-                <div className="grid gap-4">
-                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-500">
-                      <h3 className="font-bold text-white mb-1">1. Empty Hand</h3>
-                      <p className="text-sm text-slate-400">Once your hand is empty, you must pick up your 3 Face-Up cards to continue playing.</p>
-                   </div>
-                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-700">
-                      <h3 className="font-bold text-white mb-1">2. The Blind Faith</h3>
-                      <p className="text-sm text-slate-400">When Face-Up cards are gone, you play your 3 Hidden cards blindly. Flip one over on your turn. If it beats the pile, you're safe. If not, you pick up the pile!</p>
-                   </div>
-                   <div className="bg-slate-800/50 p-4 rounded-xl border-l-4 border-amber-900">
-                      <h3 className="font-bold text-white mb-1">3. Victory</h3>
-                      <p className="text-sm text-slate-400">The first player to have no cards in Hand, Face-Up, or Hidden piles wins the game.</p>
-                   </div>
-                </div>
-             </div>
-          </div>
-         );
-      case 'arbiter':
-        return <Arbiter />;
-      default:
-        return renderLobby();
-    }
-  };
-
-  return (
-    <div className="h-[100dvh] text-slate-100 flex flex-col md:flex-row overflow-hidden fixed inset-0 bg-felt">
-      {/* Sidebar Navigation - Desktop */}
-      <nav className="hidden md:flex w-72 bg-slate-950/80 backdrop-blur-xl border-r border-white/5 flex-col shrink-0 z-50">
-        <div className="p-8 border-b border-white/5">
-          <h1 className="text-3xl font-playfair font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-100 to-amber-600 drop-shadow-sm leading-tight">
-            Palace Rulers
-          </h1>
-          <p className="text-[10px] text-slate-500 mt-3 tracking-[0.3em] uppercase font-bold">Royal Edition</p>
-        </div>
-        
-        <div className="flex-1 p-4 space-y-2">
-          {[
-            { id: 'lobby', label: 'Play Arena', icon: Play, special: true },
-            { id: 'setup', label: 'Setup', icon: Layers },
-            { id: 'gameplay', label: 'Rules Sheet', icon: BookOpen },
-            { id: 'power', label: 'Power Cards', icon: Zap },
-            { id: 'endgame', label: 'Endgame', icon: Trophy },
-            { id: 'arbiter', label: 'The Arbiter', icon: HelpCircle },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id as any)}
-              className={`
-                flex items-center gap-4 w-full p-4 rounded-xl transition-all font-medium text-sm
-                ${activeTab === item.id 
-                  ? 'bg-gradient-to-r from-amber-900/40 to-amber-800/20 text-amber-100 shadow-inner border border-amber-500/20' 
-                  : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                }
-              `}
-            >
-              <item.icon className={`w-5 h-5 ${item.special && activeTab !== 'lobby' ? 'text-amber-500' : ''}`} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-        
-        {userProfile && (
-           <div className="p-4 border-t border-white/5">
-              <div className="bg-slate-900/50 rounded-xl p-3 flex items-center gap-3">
-                 <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center font-bold text-xs">
-                    {userProfile.name.charAt(0)}
-                 </div>
-                 <div className="overflow-hidden">
-                    <div className="text-sm font-bold truncate text-amber-100">{userProfile.name}</div>
-                    <div className="text-[10px] text-slate-500 truncate">{userProfile.id}</div>
-                 </div>
-              </div>
-           </div>
-        )}
-      </nav>
-
-      {/* Main Content Area */}
-      <main className="flex-1 h-full overflow-y-auto no-scrollbar relative">
-        <div className={`h-full ${activeTab === 'lobby' || activeTab === 'play' ? 'p-0 md:p-6' : 'p-4 md:p-12 max-w-6xl mx-auto'}`}>
-          {renderContent()}
-        </div>
-      </main>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/10 z-50 px-2 py-2 safe-area-bottom shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-        <div className="flex justify-around items-center">
-          {[
-            { id: 'lobby', label: 'Play', icon: Play, special: true },
-            { id: 'setup', label: 'Setup', icon: Layers },
-            { id: 'gameplay', label: 'Rules', icon: BookOpen },
-            { id: 'power', label: 'Power', icon: Zap },
-            { id: 'arbiter', label: 'Arbiter', icon: HelpCircle },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id as any)}
-              className={`
-                flex flex-col items-center justify-center gap-1 p-2 rounded-xl w-16
-                ${activeTab === item.id 
-                  ? 'text-amber-400 bg-white/5' 
-                  : 'text-slate-500'
-                }
-              `}
-            >
-              <item.icon className={`w-5 h-5 ${item.special && activeTab === 'lobby' ? 'fill-current' : ''}`} />
-              <span className="text-[9px] font-bold tracking-wide">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-    </div>
-  );
-}
+                      <p>When the

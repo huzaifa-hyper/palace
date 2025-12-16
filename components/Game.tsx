@@ -60,10 +60,11 @@ interface GameProps {
   playerCount: number;
   userProfile: UserProfile;
   connectedPeers?: any[]; // For Host
+  myPeerId?: string; // Robust ID passed from App
   onExit: () => void;
 }
 
-export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, connectedPeers, onExit }) => {
+export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, connectedPeers, myPeerId, onExit }) => {
   const [phase, setPhase] = useState<GamePhase>('SETUP');
   const [players, setPlayers] = useState<Player[]>([]);
   const [deck, setDeck] = useState<Card[]>([]);
@@ -92,31 +93,22 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const isOnline = isHost || isClient;
 
   // --- Robust Identity Resolution ---
-  const [localPeerId, setLocalPeerId] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Capture the Peer ID on mount to ensure it's available for identity resolution
-    if (p2pService.myPeerId) {
-        setLocalPeerId(p2pService.myPeerId);
-    }
-  }, []);
-
   const myPlayerId = useMemo(() => {
       if (players.length === 0) return -1;
       
       if (isHost) return 0; // Host is always player 0
       
       if (isClient) {
-          // Robust check for peerId using local state
-          if (!localPeerId) return -1;
-          return players.findIndex(p => p.peerId === localPeerId);
+          // Robust check for peerId using passed prop
+          if (!myPeerId) return -1;
+          return players.findIndex(p => p.peerId === myPeerId);
       }
       
       if (mode === 'VS_BOT') return 0; // Player is always 0 against bots
       if (mode === 'PASS_AND_PLAY') return turnIndex; // Identity follows turn
       
       return -1;
-  }, [isHost, isClient, mode, players, turnIndex, localPeerId]);
+  }, [isHost, isClient, mode, players, turnIndex, myPeerId]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -918,7 +910,8 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       return (
          <div className="flex flex-col items-center justify-center h-full w-full bg-slate-950 text-white">
             <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p>Identifying Player...</p>
+            <p className="text-amber-200 font-bold mb-2">Identifying Player...</p>
+            <p className="text-xs text-slate-500">Peer ID: {myPeerId?.substring(0,8)}...</p>
          </div>
       );
   }
