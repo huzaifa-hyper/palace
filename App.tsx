@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban } from 'lucide-react';
+import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
+import { RulesSheet } from './components/RulesSheet';
 import { Suit, Rank, UserProfile, GameMode, WalletState } from './types';
 import { web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
 import { GAME_RULES_TEXT } from './constants';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'setup' | 'gameplay' | 'power' | 'endgame' | 'arbiter' | 'lobby'>('setup');
+  const [activeTab, setActiveTab] = useState<'lobby' | 'rules' | 'arbiter'>('lobby');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [gameConfig, setGameConfig] = useState<{ mode: GameMode; playerCount: number } | null>(null);
   const [tempName, setTempName] = useState('');
@@ -592,106 +593,45 @@ export default function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'lobby':
-        return renderLobby();
-      case 'setup':
-        return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             <div className="flex items-center gap-4 mb-4">
-                <div className="bg-amber-500/20 p-3 rounded-xl">
-                  <Layers className="w-8 h-8 text-amber-500" />
-                </div>
-                <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Game Setup</h2>
-             </div>
-             <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 space-y-4 text-slate-300 leading-relaxed text-sm md:text-base">
-               <p>The game begins with a unique setup phase designed to build your defenses.</p>
-               <ul className="list-disc pl-6 space-y-3">
-                 <li><strong className="text-amber-400">3 Hidden Cards:</strong> Dealt face-down. These are your last line of defense. No peeking!</li>
-                 <li><strong className="text-amber-400">3 Face-Up Cards:</strong> You must strategically select 3 cards from your initial hand of 7 to place on top of your hidden cards.</li>
-                 <li><strong className="text-amber-400">The Hand:</strong> You keep the remaining 4 cards to start the battle.</li>
-               </ul>
-               <div className="bg-amber-900/20 p-4 rounded-xl border border-amber-500/20 text-amber-200 text-sm flex gap-3 mt-4">
-                  <div className="mt-1"><Crown className="w-4 h-4 text-amber-500" /></div>
-                  <div>
-                    <span className="font-bold block mb-1">Strategy Tip</span>
-                    Place high-value cards (Aces, Kings) or Power Cards (2, 10) in your face-up pile to ensure you can survive the end-game when you have no other options.
-                  </div>
-               </div>
-             </div>
+      case 'lobby': return renderLobby();
+      case 'rules': return <RulesSheet />;
+      case 'arbiter': return <Arbiter />;
+      default: return renderLobby();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-felt text-slate-200 safe-area-bottom flex flex-col">
+       <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
+         {renderContent()}
+       </div>
+
+       {/* Simplified Bottom Navigation */}
+       <div className="sticky bottom-0 bg-slate-950/80 backdrop-blur-xl border-t border-white/5 px-6 py-4 z-50">
+          <div className="max-w-md mx-auto flex justify-between items-center bg-slate-900 rounded-full p-1 border border-white/10 shadow-2xl">
+             <button 
+               onClick={() => setActiveTab('lobby')}
+               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'lobby' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+                <Users className="w-5 h-5 mb-0.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Lobby</span>
+             </button>
+             <button 
+               onClick={() => setActiveTab('rules')}
+               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'rules' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+                <BookOpen className="w-5 h-5 mb-0.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Rules</span>
+             </button>
+             <button 
+               onClick={() => setActiveTab('arbiter')}
+               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'arbiter' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+                <Bot className="w-5 h-5 mb-0.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Arbiter</span>
+             </button>
           </div>
-        );
-      case 'gameplay':
-        return (
-           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0 max-w-4xl mx-auto">
-             <div className="flex items-center gap-4 mb-6">
-                <div className="bg-blue-500/20 p-3 rounded-xl">
-                  <FileText className="w-8 h-8 text-blue-500" />
-                </div>
-                <div>
-                   <h2 className="text-3xl md:text-4xl font-playfair font-bold text-amber-100">Official Rules</h2>
-                   <p className="text-slate-400 text-sm">The Laws of the Palace</p>
-                </div>
-             </div>
-             
-             <div className="grid gap-6">
-                {/* 1. Setup Phase */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
-                   <h3 className="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2">
-                      <Layers className="w-5 h-5" /> 1. The Setup
-                   </h3>
-                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
-                      <p>Each player is dealt:</p>
-                      <ul className="list-disc pl-5 space-y-1">
-                        <li><strong>3 Face-Down Cards</strong> (The Hidden Stack). Do not look at these!</li>
-                        <li><strong>6 Hand Cards.</strong></li>
-                      </ul>
-                      <p className="mt-2">From your hand, choose <strong>3 cards to place face-up</strong> on top of your hidden stack. These are your 'stronghold' cards.</p>
-                      <p className="text-slate-400 italic text-xs mt-2">Tip: Save high cards (A, K) or Power cards (2, 10) for your face-up pile.</p>
-                   </div>
-                </div>
-
-                {/* 2. Gameplay Loop */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
-                   <h3 className="text-xl font-bold text-blue-400 mb-4 flex items-center gap-2">
-                      <Play className="w-5 h-5" /> 2. The Battle
-                   </h3>
-                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
-                      <p><strong>Goal:</strong> Be the first to get rid of all your cards.</p>
-                      <p><strong>Turn Actions:</strong></p>
-                      <ol className="list-decimal pl-5 space-y-2">
-                        <li>Play a card equal to or higher than the top card of the pile.</li>
-                        <li>You can play multiple cards of the same rank at once (e.g., two 5s).</li>
-                        <li>If you cannot play, you must <strong>pick up the entire pile.</strong></li>
-                        <li><strong>Draw Rule:</strong> As long as the deck remains, you must draw cards to maintain at least 3 cards in your hand at all times.</li>
-                      </ol>
-                   </div>
-                </div>
-
-                {/* 3. Power Cards */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
-                   <h3 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2">
-                      <Zap className="w-5 h-5" /> 3. Power Cards
-                   </h3>
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-slate-950 p-4 rounded-xl border border-blue-500/20">
-                         <div className="font-bold text-blue-400 mb-1">2: The Reset</div>
-                         <p className="text-xs text-slate-400">Resets the pile value to 0. Can be played on anything. You take another turn.</p>
-                      </div>
-                      <div className="bg-slate-950 p-4 rounded-xl border border-emerald-500/20">
-                         <div className="font-bold text-emerald-400 mb-1">7: The Lower</div>
-                         <p className="text-xs text-slate-400">Forces the next player to play LOWER than or equal to 7.</p>
-                      </div>
-                      <div className="bg-slate-950 p-4 rounded-xl border border-orange-500/20">
-                         <div className="font-bold text-orange-400 mb-1">10: The Burn</div>
-                         <p className="text-xs text-slate-400">Explodes the pile. Cards are removed from play. You take another turn.</p>
-                      </div>
-                   </div>
-                </div>
-
-                {/* 4. Endgame */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-white/5 shadow-md">
-                   <h3 className="text-xl font-bold text-red-400 mb-4 flex items-center gap-2">
-                      <Trophy className="w-5 h-5" /> 4. The Endgame
-                   </h3>
-                   <div className="space-y-3 text-slate-300 text-sm leading-relaxed">
-                      <p>When the
+       </div>
+    </div>
+  );
+}

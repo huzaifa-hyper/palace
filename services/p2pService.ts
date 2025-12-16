@@ -15,6 +15,7 @@ export class P2PService {
   private onDisconnectionCallback: ((connId: string) => void) | null = null;
 
   public myPeerId: string | null = null;
+  private heartbeatInterval: any = null;
 
   constructor() {}
 
@@ -25,26 +26,30 @@ export class P2PService {
     
     // Generate a short 4-char code for usability
     const shortCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const peerId = `PALACE-${shortCode}`;
     
     return new Promise((resolve, reject) => {
-      // 10s timeout to prevent hanging
+      // 15s timeout to prevent hanging
       const timeout = setTimeout(() => {
           if (this.peer) {
             this.peer.destroy();
             this.peer = null;
           }
           reject(new Error("Connection to multiplayer server timed out. Check your internet connection."));
-      }, 10000);
+      }, 15000);
 
       try {
-        this.peer = new Peer(`PALACE-${shortCode}`, {
+        this.peer = new Peer(peerId, {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
             },
-            debug: 1
+            debug: 1,
+            pingInterval: 5000,
         });
       } catch (e) {
           clearTimeout(timeout);
@@ -56,6 +61,7 @@ export class P2PService {
         clearTimeout(timeout);
         this.myPeerId = id;
         console.log('Host initialized:', id);
+        this.startHeartbeat();
         resolve(shortCode);
       });
 
@@ -69,6 +75,11 @@ export class P2PService {
             clearTimeout(timeout);
             reject(err);
         }
+      });
+
+      this.peer.on('disconnected', () => {
+          console.warn('Peer disconnected from signaling server. Attempting reconnect...');
+          this.peer.reconnect();
       });
     });
   }
@@ -85,16 +96,18 @@ export class P2PService {
               this.peer = null;
           }
           reject(new Error("Connection to multiplayer server timed out."));
-      }, 10000);
+      }, 15000);
 
       try {
         this.peer = new Peer(undefined, {
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
-            }
+            },
+            debug: 1
         }); 
       } catch (e) {
         clearTimeout(timeout);
@@ -104,16 +117,22 @@ export class P2PService {
 
       this.peer.on('open', (id: string) => {
         this.myPeerId = id;
+        const hostId = `PALACE-${hostCode.toUpperCase()}`;
+        
         // Connect to host
-        const conn = this.peer!.connect(`PALACE-${hostCode.toUpperCase()}`, {
+        const conn = this.peer!.connect(hostId, {
           metadata: playerData,
-          reliable: true
+          reliable: true,
+          serialization: 'json'
         });
 
         conn.on('open', () => {
           clearTimeout(timeout);
           this.connections.set('HOST', conn);
+          
           conn.on('data', (data: any) => {
+            if (data && data.type === 'PING') return; // Ignore heartbeat
+
             if (this.onMessageCallback) {
               this.onMessageCallback(data as NetworkMessage, 'HOST');
             }
@@ -122,6 +141,7 @@ export class P2PService {
         });
 
         conn.on('error', (err: any) => {
+            console.error("Connection error:", err);
             clearTimeout(timeout);
             reject(err);
         });
@@ -135,6 +155,7 @@ export class P2PService {
       });
       
       this.peer.on('error', (err: any) => {
+          console.error("Peer error:", err);
           clearTimeout(timeout);
           reject(err);
       });
@@ -150,6 +171,8 @@ export class P2PService {
       }
 
       conn.on('data', (data: any) => {
+        if (data && data.type === 'PING') return;
+
         if (this.onMessageCallback) {
           this.onMessageCallback(data as NetworkMessage, conn.peer);
         }
@@ -163,7 +186,8 @@ export class P2PService {
       });
       
       // Handle connection errors (often treated as close)
-      conn.on('error', () => {
+      conn.on('error', (err: any) => {
+          console.error(`Connection error with ${conn.peer}:`, err);
           this.connections.delete(conn.peer);
           if (this.onDisconnectionCallback) {
               this.onDisconnectionCallback(conn.peer);
@@ -172,16 +196,34 @@ export class P2PService {
     });
   }
 
+  private startHeartbeat() {
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      // Send a ping every 5 seconds to keep connection alive through NAT
+      this.heartbeatInterval = setInterval(() => {
+          this.broadcast({ type: 'PING', payload: {} });
+      }, 5000);
+  }
+
   public broadcast(msg: NetworkMessage) {
     this.connections.forEach(conn => {
-      if (conn.open) conn.send(msg);
+      if (conn.open) {
+          try {
+             conn.send(msg);
+          } catch (e) {
+             console.warn("Failed to send message to peer:", conn.peer);
+          }
+      }
     });
   }
 
   public sendToHost(msg: NetworkMessage) {
     const hostConn = this.connections.get('HOST');
     if (hostConn && hostConn.open) {
-      hostConn.send(msg);
+      try {
+        hostConn.send(msg);
+      } catch (e) {
+         console.warn("Failed to send message to Host");
+      }
     }
   }
   
@@ -190,10 +232,15 @@ export class P2PService {
       if (conn) {
           if (conn.open) {
               // Send message first
-              conn.send({ type: 'KICKED', payload: {} });
+              try {
+                conn.send({ type: 'KICKED', payload: {} });
+              } catch (e) {}
+              
               // Small delay to ensure message sends before close
               setTimeout(() => {
-                  conn.close();
+                  try {
+                    conn.close();
+                  } catch(e) {}
                   this.connections.delete(peerId);
               }, 100);
           } else {
@@ -215,6 +262,7 @@ export class P2PService {
   }
 
   public destroy() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;
@@ -223,6 +271,7 @@ export class P2PService {
     this.onMessageCallback = null;
     this.onConnectionCallback = null;
     this.onDisconnectionCallback = null;
+    this.myPeerId = null;
   }
 }
 

@@ -75,7 +75,7 @@ export interface Player {
 export type GamePhase = 'SETUP' | 'PLAYING' | 'GAME_OVER';
 
 // P2P Network Types
-export type NetworkActionType = 'JOIN' | 'START_GAME' | 'PLAY_CARD' | 'PICK_UP' | 'SETUP_CONFIRM' | 'SYNC_STATE' | 'SYNC_REQUEST' | 'KICKED';
+export type NetworkActionType = 'JOIN' | 'START_GAME' | 'PLAY_CARD' | 'PICK_UP' | 'SETUP_CONFIRM' | 'SYNC_STATE' | 'SYNC_REQUEST' | 'KICKED' | 'PING';
 
 export interface NetworkMessage {
   type: NetworkActionType;
