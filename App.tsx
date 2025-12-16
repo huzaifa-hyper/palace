@@ -17,14 +17,13 @@ const getSignalingUrl = () => {
       return process.env.NEXT_PUBLIC_SIGNALING_URL;
   }
 
-  // 2. Local Development
+  // 2. Local Development (Explicit Check)
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
       return 'ws://localhost:8080';
   }
 
-  // 3. Production Fallback 
-  // IMPORTANT: This must match your deployed Railway Signaling Server URL exactly.
-  // Do not use window.location.host unless you are certain the frontend and backend are on the SAME domain.
+  // 3. Production Fallback - RAILWAY
+  // Ensure this matches your deployment exactly (wss://)
   return 'wss://palace-rulers-signaling.up.railway.app';
 };
 
@@ -54,19 +53,6 @@ export default function App() {
     isEligible: false,
     chainId: null
   });
-
-  // --- Initialize Farcaster SDK ---
-  useEffect(() => {
-      const initSdk = async () => {
-          try {
-              // Tell Farcaster the frame is ready to be displayed
-              await sdk.actions.ready();
-          } catch (e) {
-              console.warn("Farcaster SDK ready failed or not in context:", e);
-          }
-      };
-      initSdk();
-  }, []);
 
   // --- Profile Logic ---
   useEffect(() => {
@@ -364,7 +350,7 @@ export default function App() {
                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                <div className="flex-1">
                  <div className="text-sm text-red-200">
-                    <span className="font-bold block">Access Denied</span>
+                    <span className="font-bold block">Connection Alert</span>
                     {walletError}
                  </div>
                  {walletError.includes("Metamask not installed") && (

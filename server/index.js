@@ -3,6 +3,18 @@ const WebSocket = require('ws');
 
 // 1. Create standard HTTP server (Required for Railway/Caddy to handle TLS)
 const server = http.createServer((req, res) => {
+  // CORS Headers - Crucial for Farcaster/iframe environments
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   // Basic health check endpoint
   if (req.url === '/health') {
     res.writeHead(200);
@@ -17,6 +29,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ 
   server,
   // Explicitly allow all origins for Farcaster iframe compatibility
+  // This prevents 403 Forbidden during handshake
   verifyClient: (info, cb) => {
     cb(true); 
   }

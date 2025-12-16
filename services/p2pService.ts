@@ -68,10 +68,8 @@ export class P2PService {
       };
 
       this.socket.onerror = (err) => {
-        console.error("[P2P] WS Error", err);
-        if (this.socket?.readyState !== WebSocket.OPEN) {
-             reject(err);
-        }
+        // In browsers, error events give very little info due to security
+        console.error("[P2P] WS Error Event:", err);
       };
 
       this.socket.onmessage = async (event) => {
@@ -85,7 +83,13 @@ export class P2PService {
       
       this.socket.onclose = (event) => {
           console.log("[P2P] WS Closed", event.code, event.reason);
-          if (this.onDisconnectCallback) this.onDisconnectCallback("Signaling Disconnected");
+          let reason = "Disconnected";
+          if (event.code === 1006) reason = "Connection Refused (Check URL/Server)";
+          if (event.code === 1000) reason = "Closed Normally";
+          if (this.onDisconnectCallback) this.onDisconnectCallback(reason);
+          
+          // Clean up if the socket closes unexpectedly
+          if (this.peerConnection) this.cleanup();
       };
     });
   }
