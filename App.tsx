@@ -488,7 +488,7 @@ export default function App() {
                   </div>
                   
                   <div className="flex flex-wrap gap-3 mt-6">
-                     {[2, 3].map(num => (
+                     {[2, 3, 4].map(num => (
                         <button 
                            key={num}
                            onClick={() => handleHostGame(num)}
