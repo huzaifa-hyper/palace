@@ -1,20 +1,8 @@
 const http = require('http');
-const WebSocket = require('ws');
+const { Server } = require('socket.io');
 
 // 1. Create standard HTTP server (Required for Railway/Caddy to handle TLS)
 const server = http.createServer((req, res) => {
-  // CORS Headers - Crucial for Farcaster/iframe environments
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
   // Basic health check endpoint
   if (req.url === '/health') {
     res.writeHead(200);
@@ -22,181 +10,86 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200);
-  res.end('Palace Rulers Signaling Server Online');
+  res.end('Palace Rulers Signaling Server Online (Socket.IO)');
 });
 
-// 2. Attach WebSocket Server to the HTTP instance
-const wss = new WebSocket.Server({ 
-  server,
-  // Explicitly allow all origins for Farcaster iframe compatibility
-  // This prevents 403 Forbidden during handshake
-  verifyClient: (info, cb) => {
-    cb(true); 
-  }
+// 2. Attach Socket.IO Server
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allow Farcaster frames / any origin
+    methods: ["GET", "POST"]
+  },
+  transports: ['websocket', 'polling'] // Allow fallback if WS blocked
 });
 
-// Room State: Map<roomId, Set<WebSocket>>
-const rooms = new Map();
-// Socket Meta: Map<WebSocket, { roomId, playerId, role }>
-const socketMeta = new Map();
+io.on('connection', (socket) => {
+  console.log('✅ Client connected:', socket.id);
 
-wss.on('connection', (ws) => {
-  console.log('✅ New WebSocket Connection');
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+  // Host creates a room
+  socket.on('CREATE_ROOM', ({ roomId, playerId }) => {
+     // Check if room exists using Adapter
+     const room = io.sockets.adapter.rooms.get(roomId);
+     if (room && room.size > 0) {
+       socket.emit('ERROR', 'Room already exists');
+       return;
+     }
 
-  ws.on('message', (raw) => {
-    try {
-      const data = JSON.parse(raw);
-      const { type, payload } = data;
-
-      switch (type) {
-        case 'CREATE_ROOM': {
-           const { roomId, playerId } = payload;
-           
-           if (rooms.has(roomId)) {
-             ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room already exists' }));
-             return;
-           }
-           
-           const room = new Set();
-           room.add(ws);
-           rooms.set(roomId, room);
-           
-           const role = 'HOST';
-           socketMeta.set(ws, { roomId, playerId, role });
-           
-           console.log(`👑 Room ${roomId} CREATED by ${playerId}`);
-           
-           ws.send(JSON.stringify({
-              type: 'ROLE_ASSIGNED',
-              payload: { role, isHost: true }
-           }));
-           ws.send(JSON.stringify({ type: 'WAITING_FOR_OPPONENT' }));
-           break;
-        }
-
-        case 'JOIN_ROOM': {
-          const { roomId, playerId } = payload;
-          
-          if (!rooms.has(roomId)) {
-             ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room not found. Please check the code.' }));
-             return;
-          }
-          
-          const room = rooms.get(roomId);
-
-          // Idempotency check
-          if (room.has(ws)) return;
-
-          // Strict 2-Player Limit
-          if (room.size >= 2) {
-            ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room is full (Max 2 players)' }));
-            return;
-          }
-
-          // Add player
-          room.add(ws);
-          
-          const role = 'CLIENT';
-          socketMeta.set(ws, { roomId, playerId, role });
-          
-          console.log(`👤 Player ${playerId} JOINED ${roomId}. Total: ${room.size}`);
-
-          // Acknowledge Join & Role
-          ws.send(JSON.stringify({
-             type: 'ROLE_ASSIGNED',
-             payload: { role, isHost: false }
-          }));
-
-          // Check for Match (Strictly 2 players now)
-          if (room.size === 2) {
-             console.log(`🚀 Room ${roomId} is READY. Broadcasting start...`);
-             room.forEach(client => {
-                 if (client.readyState === WebSocket.OPEN) {
-                     client.send(JSON.stringify({ type: 'ROOM_READY', payload: { roomId } }));
-                 }
-             });
-          }
-          break;
-        }
-
-        case 'SIGNAL': {
-          // Relay WebRTC signals (Offer/Answer/ICE)
-          const meta = socketMeta.get(ws);
-          if (meta && meta.roomId) {
-            const room = rooms.get(meta.roomId);
-            if (room) {
-                // Forward to the *other* peer in the room
-                room.forEach(client => {
-                    if (client !== ws && client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({ type: 'SIGNAL', payload }));
-                    }
-                });
-            }
-          }
-          break;
-        }
-
-        case 'LEAVE_ROOM':
-          handleDisconnect(ws);
-          break;
-      }
-    } catch (e) {
-      console.error('❌ Error parsing message:', e);
-    }
+     socket.join(roomId);
+     // Attach metadata to socket instance
+     socket.data = { roomId, playerId, role: 'HOST' };
+     
+     console.log(`👑 Room ${roomId} CREATED by ${playerId}`);
+     
+     socket.emit('ROLE_ASSIGNED', { role: 'HOST', isHost: true });
+     socket.emit('WAITING_FOR_OPPONENT');
   });
 
-  ws.on('close', () => {
-    handleDisconnect(ws);
+  // Client joins a room
+  socket.on('JOIN_ROOM', ({ roomId, playerId }) => {
+     const room = io.sockets.adapter.rooms.get(roomId);
+     if (!room || room.size === 0) {
+       socket.emit('ERROR', 'Room not found. Please check the code.');
+       return;
+     }
+
+     if (room.size >= 2) {
+       socket.emit('ERROR', 'Room is full (Max 2 players)');
+       return;
+     }
+
+     socket.join(roomId);
+     socket.data = { roomId, playerId, role: 'CLIENT' };
+     
+     console.log(`👤 Player ${playerId} JOINED ${roomId}`);
+     
+     socket.emit('ROLE_ASSIGNED', { role: 'CLIENT', isHost: false });
+     
+     // Notify everyone in the room (Host + Client) that we are ready
+     io.to(roomId).emit('ROOM_READY', { roomId });
   });
-  
-  ws.on('error', (err) => {
-      console.error('❌ WS Error:', err);
+
+  // Relay WebRTC Signals
+  socket.on('SIGNAL', (payload) => {
+     const { roomId } = socket.data;
+     if (roomId) {
+       // Broadcast to everyone in room EXCEPT sender
+       socket.to(roomId).emit('SIGNAL', payload);
+     }
+  });
+
+  // Handle Disconnect
+  socket.on('disconnect', () => {
+     const { roomId, playerId } = socket.data;
+     if (roomId) {
+       console.log(`💨 Player ${playerId || socket.id} left ${roomId}`);
+       // Notify remaining peer
+       socket.to(roomId).emit('PLAYER_LEFT', { playerId });
+     }
   });
 });
-
-function handleDisconnect(ws) {
-  const meta = socketMeta.get(ws);
-  if (meta) {
-    const { roomId, playerId } = meta;
-    const room = rooms.get(roomId);
-    
-    if (room) {
-      room.delete(ws);
-      console.log(`💨 Player ${playerId} left ${roomId}. Remaining: ${room.size}`);
-      
-      if (room.size === 0) {
-        rooms.delete(roomId);
-      } else {
-        // Notify remaining player that opponent left
-        room.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                    type: 'PLAYER_LEFT',
-                    payload: { playerId }
-                }));
-            }
-        });
-      }
-    }
-    socketMeta.delete(ws);
-  }
-}
-
-// Keep-Alive Heartbeat
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) return ws.terminate();
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
-
-wss.on('close', () => clearInterval(interval));
 
 // 3. Listen on process.env.PORT (Required for Railway)
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log(`🚀 Signaling server running on port ${PORT}`);
+  console.log(`🚀 Socket.IO signaling server running on port ${PORT}`);
 });

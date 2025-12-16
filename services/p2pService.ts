@@ -1,4 +1,5 @@
-import { NetworkMessage, SignalingMessage, WebRTCSignal } from '../types';
+import { io, Socket } from 'socket.io-client';
+import { NetworkMessage, SignalingMessage, WebRTCSignal, SignalType } from '../types';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -8,7 +9,7 @@ const ICE_SERVERS = {
 };
 
 export class P2PService {
-  private socket: WebSocket | null = null;
+  private socket: Socket | null = null;
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   
@@ -17,7 +18,6 @@ export class P2PService {
   public roomId: string | null = null;
   public isHost: boolean = false;
   
-  // Queue for ICE candidates received before remote description
   private candidateQueue: RTCIceCandidate[] = [];
 
   // Callbacks
@@ -27,78 +27,75 @@ export class P2PService {
 
   constructor() {}
 
-  // --- Strict Connection Flow ---
+  // --- Socket.IO Connection Flow ---
   public async connect(url: string, action: 'create' | 'join', roomId: string, playerName: string): Promise<void> {
-    this.cleanup(); // Safety cleanup
+    this.cleanup();
     this.roomId = roomId;
     this.myPeerId = `PLAYER-${Math.floor(Math.random() * 100000)}`;
     
-    console.log(`[P2P] Starting connection to Room: ${roomId} via ${url}`);
+    console.log(`[P2P] Starting Socket.IO connection to Room: ${roomId} via ${url}`);
     if (this.onConnectionCallback) this.onConnectionCallback('CONNECTING_SIGNALING');
 
-    try {
-        // Step 1: Connect WebSocket
-        await this.connectToSignalingServer(url);
-        
-        // Step 2: Create or Join Room
-        const signalType = action === 'create' ? 'CREATE_ROOM' : 'JOIN_ROOM';
-        console.log(`[P2P] WS Connected. Sending ${signalType}...`);
-        
-        this.sendSignal(signalType, { roomId, playerId: this.myPeerId });
-        
-    } catch (e) {
-        console.error("[P2P] Failed to connect:", e);
-        if (this.onDisconnectCallback) this.onDisconnectCallback("Signaling Connection Failed");
-    }
-  }
-
-  private connectToSignalingServer(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.log("[P2P] Connecting to:", url);
-      
-      try {
-          this.socket = new WebSocket(url);
-      } catch (e) {
-          return reject(e);
-      }
-
-      this.socket.onopen = () => {
-        console.log("[P2P] WS Open");
-        resolve();
-      };
-
-      this.socket.onerror = (err) => {
-        // In browsers, error events give very little info due to security
-        console.error("[P2P] WS Error Event:", err);
-      };
-
-      this.socket.onmessage = async (event) => {
         try {
-          const msg: SignalingMessage = JSON.parse(event.data);
-          await this.handleSignalingMessage(msg);
+            // Initialize Socket.IO with WebSocket transport preferred
+            this.socket = io(url, {
+                transports: ['websocket', 'polling'], // Fallback enabled
+                reconnectionAttempts: 5
+            });
+
+            this.socket.on('connect', () => {
+                console.log("[P2P] Socket Connected:", this.socket?.id);
+                // Trigger Room Action immediately upon connection
+                const event = action === 'create' ? 'CREATE_ROOM' : 'JOIN_ROOM';
+                this.socket?.emit(event, { roomId, playerId: this.myPeerId });
+                resolve();
+            });
+
+            this.socket.on('connect_error', (err) => {
+                console.error("[P2P] Socket Connection Error:", err);
+                if (this.onDisconnectCallback) this.onDisconnectCallback(`Connection Failed: ${err.message}`);
+                reject(err);
+            });
+
+            this.socket.on('disconnect', (reason) => {
+                console.log("[P2P] Socket Disconnected:", reason);
+                if (this.onDisconnectCallback && reason !== 'io client disconnect') {
+                    this.onDisconnectCallback("Signaling Disconnected");
+                }
+            });
+
+            // Map Socket.IO events to internal handler
+            this.setupSocketListeners();
+
         } catch (e) {
-          console.error("[P2P] Signal parse error", e);
+            console.error("[P2P] Init Error:", e);
+            reject(e);
         }
-      };
-      
-      this.socket.onclose = (event) => {
-          console.log("[P2P] WS Closed", event.code, event.reason);
-          let reason = "Disconnected";
-          if (event.code === 1006) reason = "Connection Refused (Check URL/Server)";
-          if (event.code === 1000) reason = "Closed Normally";
-          if (this.onDisconnectCallback) this.onDisconnectCallback(reason);
-          
-          // Clean up if the socket closes unexpectedly
-          if (this.peerConnection) this.cleanup();
-      };
     });
   }
 
-  private sendSignal(type: string, payload: any) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ type, payload }));
+  private setupSocketListeners() {
+      if (!this.socket) return;
+
+      // Event Mapping
+      this.socket.on('ROLE_ASSIGNED', (payload) => this.handleSignalingMessage({ type: 'ROLE_ASSIGNED', payload }));
+      this.socket.on('WAITING_FOR_OPPONENT', () => this.handleSignalingMessage({ type: 'WAITING_FOR_OPPONENT', payload: null }));
+      this.socket.on('ROOM_READY', (payload) => this.handleSignalingMessage({ type: 'ROOM_READY', payload }));
+      this.socket.on('SIGNAL', (payload) => this.handleSignalingMessage({ type: 'SIGNAL', payload }));
+      this.socket.on('PLAYER_LEFT', (payload) => this.handleSignalingMessage({ type: 'PLAYER_LEFT', payload }));
+      this.socket.on('ERROR', (msg) => this.handleSignalingMessage({ type: 'ERROR', payload: msg }));
+  }
+
+  private sendSignal(type: SignalType, payload: any) {
+    if (this.socket && this.socket.connected) {
+        // We only send 'SIGNAL' type events manually via this method for WebRTC exchange
+        // Room creation/joining is handled in connect()
+        if (type === 'SIGNAL') {
+            this.socket.emit('SIGNAL', payload);
+        }
     } else {
-        console.warn("[P2P] Cannot send signal, socket not open");
+        console.warn("[P2P] Cannot send signal, socket not connected");
     }
   }
 
@@ -107,7 +104,6 @@ export class P2PService {
 
     switch (msg.type) {
       case 'ROLE_ASSIGNED':
-        // Server tells us if we are Host or Client
         this.isHost = msg.payload.role === 'HOST';
         console.log(`[P2P] Role Assigned: ${msg.payload.role}`);
         break;
@@ -117,21 +113,17 @@ export class P2PService {
         break;
 
       case 'ROOM_READY':
-        // Step 3: Room Ready -> Start WebRTC
         console.log("[P2P] Room Ready. Starting WebRTC Handshake...");
         if (this.onConnectionCallback) this.onConnectionCallback('ESTABLISHING_P2P');
         
         this.setupPeerConnection();
         
-        // Strict Order: ONLY Host creates the offer
         if (this.isHost) {
             console.log("[P2P] I am Host. Creating Offer...");
             this.createDataChannel();
             const offer = await this.peerConnection!.createOffer();
             await this.peerConnection!.setLocalDescription(offer);
             this.sendSignal('SIGNAL', { type: 'OFFER', data: offer });
-        } else {
-            console.log("[P2P] I am Client. Waiting for Offer...");
         }
         break;
 
@@ -140,11 +132,7 @@ export class P2PService {
         if (!this.peerConnection) this.setupPeerConnection();
 
         if (signal.type === 'OFFER') {
-          // Client receives offer
-          if (this.isHost) {
-              console.warn("[P2P] Host received OFFER (Unexpected)");
-              return; 
-          }
+          if (this.isHost) return; // Ignore if host
           console.log("[P2P] Received OFFER. Creating Answer...");
           await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(signal.data));
           this.processCandidateQueue(); 
@@ -154,23 +142,17 @@ export class P2PService {
           this.sendSignal('SIGNAL', { type: 'ANSWER', data: answer });
         } 
         else if (signal.type === 'ANSWER') {
-          // Host receives answer
-          if (!this.isHost) {
-              console.warn("[P2P] Client received ANSWER (Unexpected)");
-              return;
-          }
+          if (!this.isHost) return; // Ignore if client
           console.log("[P2P] Received ANSWER. Setting Remote Description...");
           await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(signal.data));
           this.processCandidateQueue();
         } 
         else if (signal.type === 'ICE_CANDIDATE') {
-          // Both receive candidates
           if (signal.data) {
              const candidate = new RTCIceCandidate(signal.data);
              if (this.peerConnection!.remoteDescription) {
                  await this.peerConnection!.addIceCandidate(candidate);
              } else {
-                 console.log("[P2P] Queuing ICE Candidate (No remote desc yet)");
                  this.candidateQueue.push(candidate);
              }
           }
@@ -192,11 +174,7 @@ export class P2PService {
       while(this.candidateQueue.length > 0) {
           const c = this.candidateQueue.shift();
           if(c) {
-              try {
-                await this.peerConnection!.addIceCandidate(c);
-              } catch (e) {
-                  console.error("Error adding queued ice candidate", e);
-              }
+              try { await this.peerConnection!.addIceCandidate(c); } catch (e) { console.error(e); }
           }
       }
   }
@@ -204,7 +182,6 @@ export class P2PService {
   private setupPeerConnection() {
     if (this.peerConnection) return;
 
-    console.log("[P2P] Initializing RTCPeerConnection");
     this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
 
     this.peerConnection.onicecandidate = (event) => {
@@ -220,7 +197,6 @@ export class P2PService {
       }
     };
 
-    // Client handles Data Channel here (passive)
     if (!this.isHost) {
         this.peerConnection.ondatachannel = (event) => {
             console.log("[P2P] Received Data Channel from Host");
@@ -231,7 +207,6 @@ export class P2PService {
 
   private createDataChannel() {
     if (!this.peerConnection) return;
-    console.log("[P2P] Creating Data Channel (Host)");
     const channel = this.peerConnection.createDataChannel("game-data", { ordered: true });
     this.setupDataChannel(channel);
   }
@@ -241,9 +216,7 @@ export class P2PService {
     
     this.dataChannel.onopen = () => {
       console.log("[P2P] Data Channel OPEN - Game Ready");
-      if (this.onConnectionCallback) {
-        this.onConnectionCallback('CONNECTED');
-      }
+      if (this.onConnectionCallback) this.onConnectionCallback('CONNECTED');
     };
 
     this.dataChannel.onmessage = (event) => {
@@ -296,11 +269,12 @@ export class P2PService {
   private cleanup() {
     if (this.dataChannel) this.dataChannel.close();
     if (this.peerConnection) this.peerConnection.close();
-    if (this.socket) this.socket.close();
-    
+    if (this.socket) {
+        this.socket.disconnect();
+        this.socket = null;
+    }
     this.dataChannel = null;
     this.peerConnection = null;
-    this.socket = null;
     this.candidateQueue = [];
   }
 }

@@ -19,12 +19,11 @@ const getSignalingUrl = () => {
 
   // 2. Local Development (Explicit Check)
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-      return 'ws://localhost:8080';
+      return 'http://localhost:8080';
   }
 
-  // 3. Production Fallback - RAILWAY
-  // Ensure this matches your deployment exactly (wss://)
-  return 'wss://palace-rulers-signaling.up.railway.app';
+  // 3. Production Fallback - RAILWAY (Socket.IO uses HTTPS)
+  return 'https://palace-rulers-signaling.up.railway.app';
 };
 
 const SIGNALING_URL = getSignalingUrl();
