@@ -14,7 +14,13 @@ const server = http.createServer((req, res) => {
 });
 
 // 2. Attach WebSocket Server to the HTTP instance
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+  server,
+  // Explicitly allow all origins for Farcaster iframe compatibility
+  verifyClient: (info, cb) => {
+    cb(true); 
+  }
+});
 
 // Room State: Map<roomId, Set<WebSocket>>
 const rooms = new Map();
