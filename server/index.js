@@ -2,16 +2,15 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const server = http.createServer((req, res) => {
-  // Basic health check endpoint
   res.writeHead(200);
   res.end('Palace Rulers Signaling Server Online');
 });
 
 const wss = new WebSocket.Server({ server });
 
-// Map<RoomID, Set<WebSocket>>
+// Room Structure: { clients: WebSocket[] } - clients[0] is HOST, clients[1] is CLIENT
 const rooms = new Map();
-// Map<WebSocket, { roomId: string, playerId: string }>
+// Socket Meta: { roomId, playerId, role }
 const socketMeta = new Map();
 
 function heartbeat() {
@@ -31,48 +30,60 @@ wss.on('connection', (ws) => {
         case 'JOIN_ROOM': {
           const { roomId, playerId } = payload;
           
-          if (!rooms.has(roomId)) {
-            rooms.set(roomId, new Set());
+          let room = rooms.get(roomId);
+          if (!room) {
+            room = { clients: [] };
+            rooms.set(roomId, room);
           }
+
+          // Check if already in room (idempotency)
+          if (room.clients.includes(ws)) return;
+
+          // Enforce 2 player limit for strict Host/Client logic
+          if (room.clients.length >= 2) {
+             ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room full' }));
+             return;
+          }
+
+          room.clients.push(ws);
           
-          const room = rooms.get(roomId);
+          // Determine Role
+          const role = room.clients.length === 1 ? 'HOST' : 'CLIENT';
+          socketMeta.set(ws, { roomId, playerId, role });
           
-          // Allow up to 4 players for multiplayer flexibility
-          if (room.size >= 4) {
-             // Cleanup dead sockets before rejecting
-             let deadCount = 0;
-             room.forEach(client => {
-                 if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
-                     deadCount++;
-                     room.delete(client);
+          console.log(`Player ${playerId} joined ${roomId} as ${role}. Total: ${room.clients.length}`);
+
+          // 1. Tell the player their role
+          ws.send(JSON.stringify({
+             type: 'ROLE_ASSIGNED',
+             payload: { role, isHost: role === 'HOST' }
+          }));
+
+          // 2. If Room is full (2 players), broadcast ROOM_READY
+          if (room.clients.length === 2) {
+             console.log(`Room ${roomId} is READY.`);
+             room.clients.forEach(client => {
+                 if (client.readyState === WebSocket.OPEN) {
+                     client.send(JSON.stringify({ type: 'ROOM_READY', payload: { roomId } }));
                  }
              });
-             
-             if (room.size >= 4) {
-                 ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room full' }));
-                 return;
-             }
           }
-
-          room.add(ws);
-          socketMeta.set(ws, { roomId, playerId });
-          
-          console.log(`Player ${playerId} joined room ${roomId}. Size: ${room.size}`);
-
-          // Notify existing players (mostly for Host to see new joiners)
-          broadcastToRoom(ws, roomId, {
-            type: 'PLAYER_JOINED',
-            payload: { playerId }
-          });
           break;
         }
 
         case 'SIGNAL': {
           // Relays OFFER, ANSWER, ICE_CANDIDATE
-          // Now payload should include targetPeerId to route correctly
-          const { roomId } = socketMeta.get(ws) || {};
-          if (roomId) {
-            broadcastToRoom(ws, roomId, { type: 'SIGNAL', payload });
+          const meta = socketMeta.get(ws);
+          if (meta && meta.roomId) {
+            const room = rooms.get(meta.roomId);
+            if (room) {
+                // Broadcast to OTHER peer in the room
+                room.clients.forEach(client => {
+                    if (client !== ws && client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({ type: 'SIGNAL', payload }));
+                    }
+                });
+            }
           }
           break;
         }
@@ -97,15 +108,22 @@ function handleDisconnect(ws) {
   if (meta) {
     const { roomId, playerId } = meta;
     const room = rooms.get(roomId);
+    
     if (room) {
-      room.delete(ws);
-      if (room.size === 0) {
+      // Remove client
+      room.clients = room.clients.filter(c => c !== ws);
+      
+      if (room.clients.length === 0) {
         rooms.delete(roomId);
       } else {
-        // Notify remaining players
-        broadcastToRoom(ws, roomId, {
-          type: 'PLAYER_LEFT',
-          payload: { playerId }
+        // Notify remaining player
+        room.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                    type: 'PLAYER_LEFT',
+                    payload: { playerId }
+                }));
+            }
         });
       }
     }
@@ -114,23 +132,10 @@ function handleDisconnect(ws) {
   }
 }
 
-function broadcastToRoom(senderWs, roomId, message) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-  
-  const msgString = JSON.stringify(message);
-  for (const client of room) {
-    if (client !== senderWs && client.readyState === WebSocket.OPEN) {
-      client.send(msgString);
-    }
-  }
-}
-
-// Heartbeat interval
+// Keep-Alive
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {
     if (ws.isAlive === false) return ws.terminate();
-    
     ws.isAlive = false;
     ws.ping();
   });

@@ -1,16 +1,15 @@
 import { NetworkMessage, SignalingMessage, WebRTCSignal } from '../types';
 
+// Deterministic Signaling URL
 const getSignalingUrl = () => {
-    if (typeof window !== 'undefined') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname;
-        
-        // If production (not localhost)
-        if (host !== 'localhost' && host !== '127.0.0.1') {
-            return process.env.NEXT_PUBLIC_SIGNALING_URL || 'wss://palace-rulers-signaling.fly.dev'; 
-        }
-        // Localhost fallback
-        return `${protocol}//${host}:8080`;
+    // If we have a robust environment var, use it. 
+    // Otherwise fallback to likely production URL or localhost only if strictly dev.
+    if (process.env.NEXT_PUBLIC_SIGNALING_URL) {
+        return process.env.NEXT_PUBLIC_SIGNALING_URL;
+    }
+    // Fallback for Railway/Fly deployment patterns if env is missing in client build
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+        return 'wss://palace-rulers-signaling.up.railway.app'; // Example or generic fallback
     }
     return 'ws://localhost:8080';
 };
@@ -22,67 +21,61 @@ const ICE_SERVERS = {
   ]
 };
 
-interface PeerConnection {
-    pc: RTCPeerConnection;
-    dc: RTCDataChannel | null;
-}
-
 export class P2PService {
   private socket: WebSocket | null = null;
-  
-  // Multi-peer management: Map<PeerId, ConnectionObj>
-  private peers: Map<string, PeerConnection> = new Map();
+  private peerConnection: RTCPeerConnection | null = null;
+  private dataChannel: RTCDataChannel | null = null;
   
   // State
   public myPeerId: string | null = null;
-  private roomId: string | null = null;
-  private isHost: boolean = false;
+  public roomId: string | null = null;
+  public isHost: boolean = false;
   
+  // Queue for ICE candidates received before remote description
+  private candidateQueue: RTCIceCandidate[] = [];
+
   // Callbacks
   private onMessageCallback: ((msg: NetworkMessage, senderId: string) => void) | null = null;
-  private onConnectionCallback: ((peerId: string, meta: any) => void) | null = null;
-  private onDisconnectCallback: ((peerId: string) => void) | null = null;
+  private onConnectionCallback: ((status: string) => void) | null = null;
+  private onDisconnectCallback: ((reason: string) => void) | null = null;
 
   constructor() {}
 
-  public async initHost(): Promise<string> {
-    this.isHost = true;
-    this.peers.clear();
-    const shortCode = Math.random().toString(36).substring(2, 6).toUpperCase();
-    this.roomId = shortCode;
-    this.myPeerId = `HOST-${Math.floor(Math.random() * 10000)}`;
+  // --- Unified Connect Flow ---
+  public async connect(roomId: string, playerName: string): Promise<void> {
+    this.cleanup(); // Safety cleanup
+    this.roomId = roomId;
+    this.myPeerId = `PLAYER-${Math.floor(Math.random() * 100000)}`;
+    
+    // Notify UI
+    if (this.onConnectionCallback) this.onConnectionCallback('CONNECTING_SIGNALING');
 
-    await this.connectToSignalingServer();
-    this.sendSignal('JOIN_ROOM', { roomId: this.roomId, playerId: this.myPeerId });
-
-    return shortCode;
+    try {
+        await this.connectToSignalingServer();
+        // Send Join Request
+        this.sendSignal('JOIN_ROOM', { roomId, playerId: this.myPeerId });
+    } catch (e) {
+        console.error("Failed to connect to signaling", e);
+        if (this.onDisconnectCallback) this.onDisconnectCallback("Signaling Connection Failed");
+    }
   }
-
-  public async initClient(code: string, metadata: any): Promise<void> {
-    this.isHost = false;
-    this.peers.clear();
-    this.roomId = code.toUpperCase();
-    this.myPeerId = `CLIENT-${Math.floor(Math.random() * 10000)}`;
-
-    await this.connectToSignalingServer();
-    this.sendSignal('JOIN_ROOM', { roomId: this.roomId, playerId: this.myPeerId });
-  }
-
-  // --- Signaling ---
 
   private connectToSignalingServer(): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
-          const url = getSignalingUrl();
-          console.log("Connecting to Signaling Server:", url);
-          this.socket = new WebSocket(url); 
-      } catch(e) {
-          reject(e);
-          return;
-      }
+      const url = getSignalingUrl();
+      console.log("Connecting to WS:", url);
+      this.socket = new WebSocket(url);
 
-      this.socket.onopen = () => resolve();
-      this.socket.onerror = (err) => reject(err);
+      this.socket.onopen = () => {
+        console.log("WS Open");
+        resolve();
+      };
+
+      this.socket.onerror = (err) => {
+        console.error("WS Error", err);
+        reject(err);
+      };
+
       this.socket.onmessage = async (event) => {
         try {
           const msg: SignalingMessage = JSON.parse(event.data);
@@ -90,6 +83,10 @@ export class P2PService {
         } catch (e) {
           console.error("Signal parse error", e);
         }
+      };
+      
+      this.socket.onclose = () => {
+          if (this.onDisconnectCallback) this.onDisconnectCallback("Signaling Disconnected");
       };
     });
   }
@@ -101,218 +98,187 @@ export class P2PService {
   }
 
   private async handleSignalingMessage(msg: SignalingMessage) {
+    console.log("Received Signal:", msg.type);
+
     switch (msg.type) {
-      case 'PLAYER_JOINED':
-        // Only Host needs to react to new players joining to initiate connection
+      case 'ROLE_ASSIGNED':
+        // Server tells us if we are Host or Client
+        this.isHost = msg.payload.role === 'HOST';
+        if (this.onConnectionCallback) {
+            this.onConnectionCallback(this.isHost ? 'WAITING_FOR_OPPONENT' : 'CONNECTING_PEER');
+        }
+        console.log(`Role Assigned: ${msg.payload.role}`);
+        break;
+
+      case 'ROOM_READY':
+        console.log("Room Ready. Starting WebRTC Handshake...");
+        if (this.onConnectionCallback) this.onConnectionCallback('ESTABLISHING_P2P');
+        
+        // Strict Order: Host creates connection & offer. Client creates connection & waits.
+        this.setupPeerConnection();
+        
         if (this.isHost) {
-            console.log("Host detected new player:", msg.payload.playerId);
-            this.createConnection(msg.payload.playerId, true); // Initiate
+            this.createDataChannel();
+            const offer = await this.peerConnection!.createOffer();
+            await this.peerConnection!.setLocalDescription(offer);
+            this.sendSignal('SIGNAL', { type: 'OFFER', data: offer });
         }
         break;
 
       case 'SIGNAL':
-        const { type, data, targetPeerId, senderPeerId } = msg.payload;
-        
-        // Filter signals meant for others
-        if (targetPeerId !== this.myPeerId) return;
+        const signal: WebRTCSignal = msg.payload;
+        if (!this.peerConnection) this.setupPeerConnection();
 
-        let conn = this.peers.get(senderPeerId);
-        
-        if (!conn) {
-             // If we receive an OFFER and we don't have a connection, create one (Responder)
-             if (type === 'OFFER') {
-                 conn = this.createConnection(senderPeerId, false);
+        if (signal.type === 'OFFER') {
+          // Client receives offer
+          if (this.isHost) return; // Host shouldn't receive offers in this flow
+          console.log("Received OFFER");
+          await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(signal.data));
+          this.processCandidateQueue(); // Apply any queued ICE candidates
+          
+          const answer = await this.peerConnection!.createAnswer();
+          await this.peerConnection!.setLocalDescription(answer);
+          this.sendSignal('SIGNAL', { type: 'ANSWER', data: answer });
+        } 
+        else if (signal.type === 'ANSWER') {
+          // Host receives answer
+          if (!this.isHost) return;
+          console.log("Received ANSWER");
+          await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(signal.data));
+          this.processCandidateQueue();
+        } 
+        else if (signal.type === 'ICE_CANDIDATE') {
+          // Both receive candidates
+          if (signal.data) {
+             const candidate = new RTCIceCandidate(signal.data);
+             if (this.peerConnection!.remoteDescription) {
+                 await this.peerConnection!.addIceCandidate(candidate);
              } else {
-                 console.warn("Received non-offer signal for unknown peer", senderPeerId);
-                 return;
+                 this.candidateQueue.push(candidate);
              }
-        }
-
-        const { pc } = conn;
-
-        if (type === 'OFFER') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          this.sendSignal('SIGNAL', { 
-              type: 'ANSWER', 
-              data: answer, 
-              targetPeerId: senderPeerId, 
-              senderPeerId: this.myPeerId 
-          });
-        } 
-        else if (type === 'ANSWER') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data));
-        } 
-        else if (type === 'ICE_CANDIDATE') {
-          if (data) {
-            try {
-                await pc.addIceCandidate(new RTCIceCandidate(data));
-            } catch (e) {
-                console.warn("Failed to add ICE candidate", e);
-            }
           }
         }
         break;
         
       case 'PLAYER_LEFT':
-        const pid = msg.payload.playerId;
-        this.closePeer(pid);
-        if (this.onDisconnectCallback) this.onDisconnectCallback(pid);
+        if (this.onDisconnectCallback) this.onDisconnectCallback("Opponent Left");
+        this.cleanup();
         break;
         
       case 'ERROR':
-        if (this.onDisconnectCallback) this.onDisconnectCallback("Server Error: " + msg.payload);
+        if (this.onDisconnectCallback) this.onDisconnectCallback(msg.payload);
         break;
     }
   }
 
-  // --- WebRTC Management ---
-
-  private createConnection(remotePeerId: string, initiator: boolean): PeerConnection {
-      if (this.peers.has(remotePeerId)) return this.peers.get(remotePeerId)!;
-
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      const conn: PeerConnection = { pc, dc: null };
-      
-      this.peers.set(remotePeerId, conn);
-
-      // ICE Handler
-      pc.onicecandidate = (event) => {
-          if (event.candidate) {
-              this.sendSignal('SIGNAL', {
-                  type: 'ICE_CANDIDATE',
-                  data: event.candidate,
-                  targetPeerId: remotePeerId,
-                  senderPeerId: this.myPeerId
-              });
-          }
-      };
-
-      pc.onconnectionstatechange = () => {
-          if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-              this.closePeer(remotePeerId);
-              if (this.onDisconnectCallback) this.onDisconnectCallback(remotePeerId);
-          }
-      };
-
-      if (initiator) {
-          // Host creates Data Channel
-          const dc = pc.createDataChannel("game-data", { ordered: true });
-          conn.dc = dc;
-          this.setupDataChannel(dc, remotePeerId);
-          
-          // Create Offer
-          pc.createOffer().then(offer => {
-              return pc.setLocalDescription(offer);
-          }).then(() => {
-              this.sendSignal('SIGNAL', {
-                  type: 'OFFER',
-                  data: pc.localDescription,
-                  targetPeerId: remotePeerId,
-                  senderPeerId: this.myPeerId
-              });
-          });
-      } else {
-          // Client waits for Data Channel
-          pc.ondatachannel = (event) => {
-              conn.dc = event.channel;
-              this.setupDataChannel(event.channel, remotePeerId);
-          };
+  private async processCandidateQueue() {
+      while(this.candidateQueue.length > 0) {
+          const c = this.candidateQueue.shift();
+          if(c) await this.peerConnection!.addIceCandidate(c);
       }
-
-      return conn;
   }
 
-  private setupDataChannel(dc: RTCDataChannel, remotePeerId: string) {
-      dc.onopen = () => {
-          console.log(`Data Channel OPEN with ${remotePeerId}`);
-          if (this.onConnectionCallback) {
-              this.onConnectionCallback(remotePeerId, {});
-          }
-      };
-      
-      dc.onmessage = (event) => {
-          try {
-              const msg: NetworkMessage = JSON.parse(event.data);
-              if (msg.type === 'PING') return;
-              if (this.onMessageCallback) {
-                  this.onMessageCallback(msg, remotePeerId);
-              }
-          } catch(e) {
-              console.error("Parse Error", e);
-          }
-      };
+  private setupPeerConnection() {
+    if (this.peerConnection) return;
 
-      dc.onclose = () => {
-          console.log(`Data Channel CLOSED with ${remotePeerId}`);
-          this.closePeer(remotePeerId);
-          if (this.onDisconnectCallback) this.onDisconnectCallback(remotePeerId);
-      };
+    console.log("Setting up RTCPeerConnection");
+    this.peerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+    this.peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.sendSignal('SIGNAL', { type: 'ICE_CANDIDATE', data: event.candidate });
+      }
+    };
+
+    this.peerConnection.onconnectionstatechange = () => {
+      console.log("P2P State:", this.peerConnection?.connectionState);
+      if (this.peerConnection?.connectionState === 'failed') {
+         if (this.onDisconnectCallback) this.onDisconnectCallback("P2P Connection Failed");
+      }
+    };
+
+    // Client handles Data Channel here
+    if (!this.isHost) {
+        this.peerConnection.ondatachannel = (event) => {
+            console.log("Received Data Channel from Host");
+            this.setupDataChannel(event.channel);
+        };
+    }
   }
 
-  private closePeer(peerId: string) {
-      const conn = this.peers.get(peerId);
-      if (conn) {
-          if (conn.dc) conn.dc.close();
-          conn.pc.close();
-          this.peers.delete(peerId);
+  private createDataChannel() {
+    if (!this.peerConnection) return;
+    console.log("Creating Data Channel (Host)");
+    const channel = this.peerConnection.createDataChannel("game-data", { ordered: true });
+    this.setupDataChannel(channel);
+  }
+
+  private setupDataChannel(channel: RTCDataChannel) {
+    this.dataChannel = channel;
+    
+    this.dataChannel.onopen = () => {
+      console.log("Data Channel OPEN - Game Ready");
+      if (this.onConnectionCallback) {
+        this.onConnectionCallback('CONNECTED');
       }
+    };
+
+    this.dataChannel.onmessage = (event) => {
+      try {
+        const msg: NetworkMessage = JSON.parse(event.data);
+        if (msg.type === 'PING') return;
+        if (this.onMessageCallback) {
+          const sender = this.isHost ? "CLIENT" : "HOST";
+          this.onMessageCallback(msg, sender);
+        }
+      } catch (e) {
+        console.error("Data Channel JSON parse error", e);
+      }
+    };
+    
+    this.dataChannel.onclose = () => {
+        if (this.onDisconnectCallback) this.onDisconnectCallback("Peer Connection Closed");
+    };
   }
 
   // --- Public API ---
 
-  public broadcast(msg: NetworkMessage) {
-      // Send to all connected peers
-      this.peers.forEach((conn, pid) => {
-          this.sendToPeer(conn, msg, pid);
-      });
+  public send(msg: NetworkMessage) {
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      msg.senderId = this.myPeerId || 'UNKNOWN';
+      msg.timestamp = Date.now();
+      this.dataChannel.send(JSON.stringify(msg));
+    }
   }
 
-  public sendToHost(msg: NetworkMessage) {
-      // As client, we usually only have one peer (the Host)
-      // But we iterate just in case
-      this.peers.forEach((conn, pid) => {
-          this.sendToPeer(conn, msg, pid);
-      });
-  }
-
-  private sendToPeer(conn: PeerConnection, msg: NetworkMessage, peerId: string) {
-      if (conn.dc && conn.dc.readyState === 'open') {
-          msg.senderId = this.myPeerId || 'UNKNOWN';
-          msg.timestamp = Date.now();
-          conn.dc.send(JSON.stringify(msg));
-      }
-  }
-
-  public kickPeer(peerId: string) {
-      const conn = this.peers.get(peerId);
-      if (conn) {
-          this.sendToPeer(conn, { type: 'KICKED', payload: {} }, peerId);
-          setTimeout(() => this.closePeer(peerId), 500);
-      }
-  }
+  public broadcast(msg: NetworkMessage) { this.send(msg); }
+  public sendToHost(msg: NetworkMessage) { this.send(msg); }
 
   public onMessage(cb: (msg: NetworkMessage, connId: string) => void) {
     this.onMessageCallback = cb;
   }
 
-  public onPlayerConnected(cb: (connId: string, metadata: any) => void) {
+  public onConnectionStatus(cb: (status: string) => void) {
     this.onConnectionCallback = cb;
   }
   
-  public onPlayerDisconnected(cb: (connId: string) => void) {
+  public onPlayerDisconnected(cb: (reason: string) => void) {
       this.onDisconnectCallback = cb;
   }
 
   public destroy() {
-    this.peers.forEach(conn => {
-        if(conn.dc) conn.dc.close();
-        conn.pc.close();
-    });
-    this.peers.clear();
+    this.cleanup();
+  }
+
+  private cleanup() {
+    if (this.dataChannel) this.dataChannel.close();
+    if (this.peerConnection) this.peerConnection.close();
     if (this.socket) this.socket.close();
+    
+    this.dataChannel = null;
+    this.peerConnection = null;
     this.socket = null;
+    this.candidateQueue = [];
   }
 }
 

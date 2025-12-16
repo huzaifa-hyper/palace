@@ -78,7 +78,13 @@ export type GamePhase = 'SETUP' | 'PLAYING' | 'GAME_OVER';
 // --- P2P Networking Types ---
 
 // Signaling Server Messages (WebSocket)
-export type SignalType = 'JOIN_ROOM' | 'PLAYER_JOINED' | 'READY_TO_SIGNAL' | 'SIGNAL' | 'PLAYER_LEFT' | 'ERROR';
+export type SignalType = 
+  | 'JOIN_ROOM' 
+  | 'ROLE_ASSIGNED'  // Server tells client their role
+  | 'ROOM_READY'     // Server tells both that room is full (2 players)
+  | 'SIGNAL' 
+  | 'PLAYER_LEFT' 
+  | 'ERROR';
 
 export interface SignalingMessage {
   type: SignalType;
