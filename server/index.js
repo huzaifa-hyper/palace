@@ -37,10 +37,9 @@ wss.on('connection', (ws) => {
           
           const room = rooms.get(roomId);
           
-          // Check if player is already in room (reconnect logic could go here)
-          // For now, simple limit
-          if (room.size >= 2) {
-             // Check if one of the sockets is actually dead
+          // Allow up to 4 players for multiplayer flexibility
+          if (room.size >= 4) {
+             // Cleanup dead sockets before rejecting
              let deadCount = 0;
              room.forEach(client => {
                  if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
@@ -49,7 +48,7 @@ wss.on('connection', (ws) => {
                  }
              });
              
-             if (room.size >= 2) {
+             if (room.size >= 4) {
                  ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room full' }));
                  return;
              }
@@ -60,22 +59,17 @@ wss.on('connection', (ws) => {
           
           console.log(`Player ${playerId} joined room ${roomId}. Size: ${room.size}`);
 
-          // Notify other player in room
+          // Notify existing players (mostly for Host to see new joiners)
           broadcastToRoom(ws, roomId, {
             type: 'PLAYER_JOINED',
             payload: { playerId }
           });
-
-          // If room is now full (2 players), notify Host to start signaling
-          if (room.size === 2) {
-             const players = Array.from(room).map(c => socketMeta.get(c).playerId);
-             broadcastToRoom(null, roomId, { type: 'READY_TO_SIGNAL', payload: { players } });
-          }
           break;
         }
 
         case 'SIGNAL': {
           // Relays OFFER, ANSWER, ICE_CANDIDATE
+          // Now payload should include targetPeerId to route correctly
           const { roomId } = socketMeta.get(ws) || {};
           if (roomId) {
             broadcastToRoom(ws, roomId, { type: 'SIGNAL', payload });
@@ -108,7 +102,7 @@ function handleDisconnect(ws) {
       if (room.size === 0) {
         rooms.delete(roomId);
       } else {
-        // Notify remaining player
+        // Notify remaining players
         broadcastToRoom(ws, roomId, {
           type: 'PLAYER_LEFT',
           payload: { playerId }
@@ -132,7 +126,7 @@ function broadcastToRoom(senderWs, roomId, message) {
   }
 }
 
-// Heartbeat interval to keep connections alive through load balancers
+// Heartbeat interval
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {
     if (ws.isAlive === false) return ws.terminate();

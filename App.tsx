@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
@@ -163,8 +162,7 @@ export default function App() {
             setConnectedPeers(prev => {
                 // Avoid duplicates
                 if (prev.some(p => p.id === id)) return prev;
-                // For Host, the incoming ID is usually just a placeholder "CLIENT" in basic P2P, 
-                // but real impl would map IDs.
+                // For Host, the incoming ID is the actual Peer ID of the client
                 return [...prev, { id, name: "Challenger", isMe: false }];
             });
         });
@@ -176,7 +174,7 @@ export default function App() {
 
     } catch (err) {
         console.error(err);
-        setWalletError("Failed to initialize Host. Ensure local signaling server is running (ws://localhost:8080) or deploy one.");
+        setWalletError("Failed to initialize Host. Ensure local signaling server is running (node server/index.js) and accessible at ws://localhost:8080.");
         setIsMatchmaking(false);
     }
   };
@@ -490,14 +488,14 @@ export default function App() {
                   </div>
                   
                   <div className="flex flex-wrap gap-3 mt-6">
-                     {[2].map(num => (
+                     {[2, 3].map(num => (
                         <button 
                            key={num}
                            onClick={() => handleHostGame(num)}
                            disabled={!wallet.isEligible}
                            className="flex-1 min-w-[100px] bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 py-3 rounded-xl font-bold transition-all border border-amber-500/20 shadow-md disabled:opacity-50 disabled:hover:bg-slate-800 disabled:cursor-not-allowed group-disabled:pointer-events-none"
                         >
-                           {num} Players (P2P)
+                           {num} Players
                         </button>
                      ))}
                   </div>
