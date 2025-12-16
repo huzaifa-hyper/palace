@@ -76,11 +76,6 @@ export default function App() {
                   const params = new URLSearchParams(window.location.search);
                   const rid = params.get('room');
                   if (rid) setLobbyId(rid.toUpperCase());
-                  else {
-                      // Generate a random default for testing if nothing else exists
-                      // User can still overwrite this manually
-                      // setLobbyId(Math.random().toString(36).substring(2, 8).toUpperCase());
-                  }
               }
           } catch(e) {
               console.log("Not in Farcaster context");
@@ -134,16 +129,8 @@ export default function App() {
   };
 
   // --- Unified Multiplayer Flow ---
-  const handleEnterLobby = async () => {
-    setWalletError(null);
-    if (!checkMultiplayerEligibility()) return;
-    
-    // Safety check
-    if (!lobbyId) {
-        setLobbyId(Math.random().toString(36).substring(2, 8).toUpperCase());
-        return;
-    }
-
+  
+  const connectToLobby = async (code: string) => {
     p2pService.destroy();
     setConnectionStatus('CONNECTING');
     setStatusMessage('Connecting to Realm...');
@@ -178,11 +165,28 @@ export default function App() {
     });
 
     try {
-        await p2pService.connect(lobbyId, userProfile?.name || 'Unknown');
+        await p2pService.connect(code, userProfile?.name || 'Unknown');
     } catch (e) {
         setWalletError("Failed to initiate connection.");
         setConnectionStatus(null);
     }
+  };
+
+  const handleHostGame = async () => {
+    setWalletError(null);
+    if (!checkMultiplayerEligibility()) return;
+    
+    const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setLobbyId(newCode);
+    await connectToLobby(newCode);
+  };
+
+  const handleJoinGame = async () => {
+    setWalletError(null);
+    if (!checkMultiplayerEligibility()) return;
+    if (!lobbyId) return;
+    
+    await connectToLobby(lobbyId);
   };
 
   const handleCancelConnection = () => {
@@ -362,46 +366,66 @@ export default function App() {
 
          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
            
-           {/* UNIFIED MULTIPLAYER LOBBY */}
-           <div className="bg-gradient-to-br from-blue-900/40 to-slate-900/40 p-6 rounded-3xl border border-blue-500/30 hover:border-blue-500 transition-all group lg:col-span-2 relative overflow-hidden">
-               <div className="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors"></div>
+           {/* HOST GAME */}
+           <div className="bg-gradient-to-br from-amber-600/20 to-amber-900/20 p-6 rounded-3xl border border-amber-500/30 hover:border-amber-500 transition-all group relative overflow-hidden">
+               <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-amber-500/10 transition-colors"></div>
                <div className="relative z-10">
-                  <div className="flex items-center gap-4 mb-6">
-                     <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 shadow-lg border border-blue-500/20">
-                        <Globe className="w-6 h-6 fill-current" />
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="w-12 h-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-400 shadow-lg border border-amber-500/20">
+                        <Crown className="w-6 h-6 fill-current" />
                      </div>
                      <div>
-                        <h3 className="text-2xl font-bold text-white">Online Realm</h3>
-                        <p className="text-slate-300 text-sm">Enter the lobby code to challenge a ruler.</p>
+                        <h3 className="text-xl font-bold text-white">Host Game</h3>
+                        <p className="text-slate-300 text-xs">Create a new lobby.</p>
                      </div>
                   </div>
                   
-                  <div className="flex flex-col md:flex-row gap-4 items-center bg-slate-950/50 p-6 rounded-2xl border border-slate-700">
-                     <div className="flex-1 w-full">
-                         <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 block">Lobby ID</label>
-                         <input 
-                            type="text" 
-                            value={lobbyId}
-                            onChange={(e) => setLobbyId(e.target.value.toUpperCase().slice(0, 10))}
-                            placeholder="ENTER CODE"
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 font-mono font-bold tracking-widest text-center text-xl focus:outline-none focus:border-blue-500"
-                         />
-                     </div>
-                     <button 
-                        onClick={handleEnterLobby}
-                        disabled={!wallet.isEligible || !lobbyId}
-                        className="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-bold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                     >
-                        Enter Lobby <ArrowRight className="w-5 h-5" />
-                     </button>
-                  </div>
+                  <button 
+                     onClick={handleHostGame}
+                     disabled={!wallet.isEligible}
+                     className="w-full bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 py-3 rounded-xl font-bold transition-all border border-amber-500/20 shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                     Create Lobby <ArrowRight className="w-4 h-4" />
+                  </button>
                   
-                  {!wallet.isEligible && (
-                     <div className="flex items-center gap-2 mt-4 text-xs text-red-400 bg-red-900/20 p-2 rounded-lg inline-flex border border-red-500/20">
-                        <Wallet className="w-3 h-3" /> Connect eligible wallet to Play Online
+                   {!wallet.isEligible && (
+                     <div className="mt-3 text-xs text-red-400 bg-red-900/20 p-2 rounded-lg border border-red-500/20 flex items-center gap-1">
+                        <Wallet className="w-3 h-3" /> Eligible wallet required
                      </div>
                   )}
                </div>
+           </div>
+
+           {/* JOIN GAME */}
+           <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/5 hover:border-blue-500/30 transition-all group relative overflow-hidden">
+              <div className="relative z-10">
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 shadow-lg border border-blue-500/20">
+                        <Wifi className="w-6 h-6" />
+                     </div>
+                     <div>
+                        <h3 className="text-xl font-bold text-white">Join Game</h3>
+                        <p className="text-slate-300 text-xs">Enter a lobby code.</p>
+                     </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                     <input 
+                        type="text" 
+                        value={lobbyId}
+                        onChange={(e) => setLobbyId(e.target.value.toUpperCase().slice(0, 6))}
+                        placeholder="CODE"
+                        className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 font-mono font-bold tracking-widest w-full text-center focus:outline-none focus:border-blue-500"
+                     />
+                     <button 
+                        onClick={handleJoinGame}
+                        disabled={!wallet.isEligible || lobbyId.length < 3}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                        Join
+                     </button>
+                  </div>
+              </div>
            </div>
 
            {/* OFFLINE MODES */}
