@@ -132,20 +132,17 @@ export default function App() {
   
   const connectToLobby = async (code: string) => {
     p2pService.destroy();
-    setConnectionStatus('CONNECTING');
-    setStatusMessage('Connecting to Realm...');
+    setConnectionStatus('CONNECTING_SIGNALING');
+    setStatusMessage('Connecting to Server...');
 
     // Setup Listeners
     p2pService.onConnectionStatus((status) => {
         setConnectionStatus(status);
         if (status === 'WAITING_FOR_OPPONENT') {
-            setStatusMessage('Waiting for Challenger...');
+            setStatusMessage('Waiting for Opponent...');
             setIsHost(true);
-        } else if (status === 'CONNECTING_PEER') {
-            setStatusMessage('Found Opponent. Syncing...');
-            setIsHost(false);
         } else if (status === 'ESTABLISHING_P2P') {
-            setStatusMessage('Opening Portal (WebRTC)...');
+            setStatusMessage('Opening P2P Tunnel (WebRTC)...');
         } else if (status === 'CONNECTED') {
             // Success!
             setGameConfig({ mode: p2pService.isHost ? 'ONLINE_HOST' : 'ONLINE_CLIENT', playerCount: 2 });
@@ -167,7 +164,7 @@ export default function App() {
     try {
         await p2pService.connect(code, userProfile?.name || 'Unknown');
     } catch (e) {
-        setWalletError("Failed to initiate connection.");
+        setWalletError("Failed to initiate connection. Is the signaling server running?");
         setConnectionStatus(null);
     }
   };
@@ -231,11 +228,17 @@ export default function App() {
                   <p className="text-slate-400 text-sm mb-6 font-mono">Lobby ID: {lobbyId}</p>
                   
                   {connectionStatus === 'WAITING_FOR_OPPONENT' && (
-                      <div className="bg-slate-900 p-4 rounded-xl border border-white/10 mb-8">
+                      <div className="bg-slate-900 p-4 rounded-xl border border-white/10 mb-8 animate-in fade-in slide-in-from-bottom-2">
                           <p className="text-xs text-slate-500 mb-2">Share this Lobby ID with your opponent</p>
                           <div className="text-3xl font-mono font-bold text-white tracking-widest select-all">{lobbyId}</div>
                       </div>
                   )}
+
+                  <div className="flex justify-center gap-2 mb-6">
+                      <div className={`w-2 h-2 rounded-full ${connectionStatus === 'CONNECTING_SIGNALING' ? 'bg-blue-500 animate-bounce' : 'bg-slate-700'}`}></div>
+                      <div className={`w-2 h-2 rounded-full ${connectionStatus === 'WAITING_FOR_OPPONENT' ? 'bg-amber-500 animate-bounce' : 'bg-slate-700'}`}></div>
+                      <div className={`w-2 h-2 rounded-full ${connectionStatus === 'ESTABLISHING_P2P' ? 'bg-green-500 animate-bounce' : 'bg-slate-700'}`}></div>
+                  </div>
 
                   <button 
                      onClick={handleCancelConnection}

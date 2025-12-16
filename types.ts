@@ -84,7 +84,8 @@ export type SignalType =
   | 'ROOM_READY'     // Server tells both that room is full (2 players)
   | 'SIGNAL' 
   | 'PLAYER_LEFT' 
-  | 'ERROR';
+  | 'ERROR'
+  | 'WAITING_FOR_OPPONENT';
 
 export interface SignalingMessage {
   type: SignalType;
