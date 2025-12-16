@@ -1,22 +1,5 @@
 import { NetworkMessage, SignalingMessage, WebRTCSignal } from '../types';
 
-// Deterministic Signaling URL
-const getSignalingUrl = () => {
-    // 1. Prefer Env Var
-    if (process.env.NEXT_PUBLIC_SIGNALING_URL) {
-        return process.env.NEXT_PUBLIC_SIGNALING_URL;
-    }
-    
-    // 2. Production Fallback (Railway) - FORCE WSS
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-        // Replace this with your actual Railway URL if needed, or use the env var
-        return 'wss://palace-rulers-signaling.up.railway.app'; 
-    }
-    
-    // 3. Local Development
-    return 'ws://localhost:8080';
-};
-
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -45,21 +28,23 @@ export class P2PService {
   constructor() {}
 
   // --- Strict Connection Flow ---
-  public async connect(roomId: string, playerName: string): Promise<void> {
+  public async connect(url: string, action: 'create' | 'join', roomId: string, playerName: string): Promise<void> {
     this.cleanup(); // Safety cleanup
     this.roomId = roomId;
     this.myPeerId = `PLAYER-${Math.floor(Math.random() * 100000)}`;
     
-    console.log(`[P2P] Starting connection to Room: ${roomId}`);
+    console.log(`[P2P] Starting connection to Room: ${roomId} via ${url}`);
     if (this.onConnectionCallback) this.onConnectionCallback('CONNECTING_SIGNALING');
 
     try {
         // Step 1: Connect WebSocket
-        await this.connectToSignalingServer();
+        await this.connectToSignalingServer(url);
         
-        // Step 2: Join Room
-        console.log('[P2P] WS Connected. Joining Room...');
-        this.sendSignal('JOIN_ROOM', { roomId, playerId: this.myPeerId });
+        // Step 2: Create or Join Room
+        const signalType = action === 'create' ? 'CREATE_ROOM' : 'JOIN_ROOM';
+        console.log(`[P2P] WS Connected. Sending ${signalType}...`);
+        
+        this.sendSignal(signalType, { roomId, playerId: this.myPeerId });
         
     } catch (e) {
         console.error("[P2P] Failed to connect:", e);
@@ -67,12 +52,15 @@ export class P2PService {
     }
   }
 
-  private connectToSignalingServer(): Promise<void> {
+  private connectToSignalingServer(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = getSignalingUrl();
       console.log("[P2P] Connecting to:", url);
       
-      this.socket = new WebSocket(url);
+      try {
+          this.socket = new WebSocket(url);
+      } catch (e) {
+          return reject(e);
+      }
 
       this.socket.onopen = () => {
         console.log("[P2P] WS Open");
@@ -81,8 +69,6 @@ export class P2PService {
 
       this.socket.onerror = (err) => {
         console.error("[P2P] WS Error", err);
-        // Don't reject immediately here, allow onclose to handle it if needed, 
-        // but for initial connect we can reject
         if (this.socket?.readyState !== WebSocket.OPEN) {
              reject(err);
         }

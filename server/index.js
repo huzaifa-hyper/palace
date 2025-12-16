@@ -32,12 +32,39 @@ wss.on('connection', (ws) => {
       const { type, payload } = data;
 
       switch (type) {
+        case 'CREATE_ROOM': {
+           const { roomId, playerId } = payload;
+           
+           if (rooms.has(roomId)) {
+             ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room already exists' }));
+             return;
+           }
+           
+           const room = new Set();
+           room.add(ws);
+           rooms.set(roomId, room);
+           
+           const role = 'HOST';
+           socketMeta.set(ws, { roomId, playerId, role });
+           
+           console.log(`👑 Room ${roomId} CREATED by ${playerId}`);
+           
+           ws.send(JSON.stringify({
+              type: 'ROLE_ASSIGNED',
+              payload: { role, isHost: true }
+           }));
+           ws.send(JSON.stringify({ type: 'WAITING_FOR_OPPONENT' }));
+           break;
+        }
+
         case 'JOIN_ROOM': {
           const { roomId, playerId } = payload;
           
           if (!rooms.has(roomId)) {
-            rooms.set(roomId, new Set());
+             ws.send(JSON.stringify({ type: 'ERROR', payload: 'Room not found. Please check the code.' }));
+             return;
           }
+          
           const room = rooms.get(roomId);
 
           // Idempotency check
@@ -52,19 +79,18 @@ wss.on('connection', (ws) => {
           // Add player
           room.add(ws);
           
-          // Assign Role: First = HOST, Second = CLIENT
-          const role = room.size === 1 ? 'HOST' : 'CLIENT';
+          const role = 'CLIENT';
           socketMeta.set(ws, { roomId, playerId, role });
           
-          console.log(`👤 Player joined ${roomId} as ${role}. Total: ${room.size}`);
+          console.log(`👤 Player ${playerId} JOINED ${roomId}. Total: ${room.size}`);
 
           // Acknowledge Join & Role
           ws.send(JSON.stringify({
              type: 'ROLE_ASSIGNED',
-             payload: { role, isHost: role === 'HOST' }
+             payload: { role, isHost: false }
           }));
 
-          // Check for Match
+          // Check for Match (Strictly 2 players now)
           if (room.size === 2) {
              console.log(`🚀 Room ${roomId} is READY. Broadcasting start...`);
              room.forEach(client => {
@@ -72,8 +98,6 @@ wss.on('connection', (ws) => {
                      client.send(JSON.stringify({ type: 'ROOM_READY', payload: { roomId } }));
                  }
              });
-          } else {
-             ws.send(JSON.stringify({ type: 'WAITING_FOR_OPPONENT' }));
           }
           break;
         }

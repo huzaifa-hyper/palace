@@ -79,7 +79,8 @@ export type GamePhase = 'SETUP' | 'PLAYING' | 'GAME_OVER';
 
 // Signaling Server Messages (WebSocket)
 export type SignalType = 
-  | 'JOIN_ROOM' 
+  | 'CREATE_ROOM'    // Host requests to create a room
+  | 'JOIN_ROOM'      // Client requests to join a room
   | 'ROLE_ASSIGNED'  // Server tells client their role
   | 'ROOM_READY'     // Server tells both that room is full (2 players)
   | 'SIGNAL' 

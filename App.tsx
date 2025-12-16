@@ -10,6 +10,30 @@ import { web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
 import { GAME_RULES_TEXT } from './constants';
 
+// --- Dynamic Signaling URL Logic ---
+const getSignalingUrl = () => {
+  // 1. Env Var (Best for custom deployments)
+  if (process.env.NEXT_PUBLIC_SIGNALING_URL) {
+      return process.env.NEXT_PUBLIC_SIGNALING_URL;
+  }
+
+  // 2. Dynamic Railway detection (If hosted as a monolith)
+  // If the current window host includes 'railway.app', assume WSS on the same host
+  if (typeof window !== 'undefined') {
+      if (window.location.hostname.includes('railway.app')) {
+          return `wss://${window.location.host}`;
+      }
+      if (window.location.hostname === 'localhost') {
+          return 'ws://localhost:8080';
+      }
+  }
+
+  // 3. Fallback (Update this to your actual Railway URL if needed)
+  return 'wss://palace-rulers-signaling.up.railway.app';
+};
+
+const SIGNALING_URL = getSignalingUrl();
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'lobby' | 'rules' | 'arbiter'>('lobby');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -130,7 +154,7 @@ export default function App() {
 
   // --- Unified Multiplayer Flow ---
   
-  const connectToLobby = async (code: string) => {
+  const connectToLobby = async (code: string, action: 'create' | 'join') => {
     p2pService.destroy();
     setConnectionStatus('CONNECTING_SIGNALING');
     setStatusMessage('Connecting to Server...');
@@ -162,7 +186,8 @@ export default function App() {
     });
 
     try {
-        await p2pService.connect(code, userProfile?.name || 'Unknown');
+        console.log("Connecting to:", SIGNALING_URL);
+        await p2pService.connect(SIGNALING_URL, action, code, userProfile?.name || 'Unknown');
     } catch (e) {
         setWalletError("Failed to initiate connection. Is the signaling server running?");
         setConnectionStatus(null);
@@ -175,7 +200,7 @@ export default function App() {
     
     const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     setLobbyId(newCode);
-    await connectToLobby(newCode);
+    await connectToLobby(newCode, 'create');
   };
 
   const handleJoinGame = async () => {
@@ -183,7 +208,7 @@ export default function App() {
     if (!checkMultiplayerEligibility()) return;
     if (!lobbyId) return;
     
-    await connectToLobby(lobbyId);
+    await connectToLobby(lobbyId, 'join');
   };
 
   const handleCancelConnection = () => {
