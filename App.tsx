@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot } from 'lucide-react';
 import { PlayingCard } from './components/PlayingCard';
@@ -162,7 +163,9 @@ export default function App() {
             setConnectedPeers(prev => {
                 // Avoid duplicates
                 if (prev.some(p => p.id === id)) return prev;
-                return [...prev, { id, name: metadata.name, isMe: false }];
+                // For Host, the incoming ID is usually just a placeholder "CLIENT" in basic P2P, 
+                // but real impl would map IDs.
+                return [...prev, { id, name: "Challenger", isMe: false }];
             });
         });
 
@@ -173,7 +176,7 @@ export default function App() {
 
     } catch (err) {
         console.error(err);
-        setWalletError("Failed to initialize Host. PeerJS server might be down or blocked by network.");
+        setWalletError("Failed to initialize Host. Ensure local signaling server is running (ws://localhost:8080) or deploy one.");
         setIsMatchmaking(false);
     }
   };
@@ -227,7 +230,7 @@ export default function App() {
 
     } catch (err) {
         console.error(err);
-        setWalletError("Could not find game. Check the code.");
+        setWalletError("Could not find game. Check code or server connection.");
         setIsMatchmaking(false);
     }
   };
@@ -301,7 +304,7 @@ export default function App() {
                     {connectedPeers.map((p, i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-800 p-3 rounded-lg border border-white/5 group">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${p.isMe ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
-                                {p.name.charAt(0)}
+                                {p.name?.charAt(0) || '?'}
                             </div>
                             <span className="text-slate-200 font-bold flex-1 truncate">{p.name} {p.isMe && '(You)'}</span>
                             {p.isMe ? (
@@ -487,14 +490,14 @@ export default function App() {
                   </div>
                   
                   <div className="flex flex-wrap gap-3 mt-6">
-                     {[2, 3, 4].map(num => (
+                     {[2].map(num => (
                         <button 
                            key={num}
                            onClick={() => handleHostGame(num)}
                            disabled={!wallet.isEligible}
                            className="flex-1 min-w-[100px] bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 py-3 rounded-xl font-bold transition-all border border-amber-500/20 shadow-md disabled:opacity-50 disabled:hover:bg-slate-800 disabled:cursor-not-allowed group-disabled:pointer-events-none"
                         >
-                           {num} Players
+                           {num} Players (P2P)
                         </button>
                      ))}
                   </div>

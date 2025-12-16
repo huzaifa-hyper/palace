@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export enum Suit {
@@ -74,12 +75,36 @@ export interface Player {
 
 export type GamePhase = 'SETUP' | 'PLAYING' | 'GAME_OVER';
 
-// P2P Network Types
-export type NetworkActionType = 'JOIN' | 'START_GAME' | 'PLAY_CARD' | 'PICK_UP' | 'SETUP_CONFIRM' | 'SYNC_STATE' | 'SYNC_REQUEST' | 'KICKED' | 'PING';
+// --- P2P Networking Types ---
+
+// Signaling Server Messages (WebSocket)
+export type SignalType = 'JOIN_ROOM' | 'PLAYER_JOINED' | 'READY_TO_SIGNAL' | 'SIGNAL' | 'PLAYER_LEFT' | 'ERROR';
+
+export interface SignalingMessage {
+  type: SignalType;
+  payload: any;
+}
+
+export interface WebRTCSignal {
+  type: 'OFFER' | 'ANSWER' | 'ICE_CANDIDATE';
+  data: any;
+}
+
+// Game Data Channel Messages (WebRTC)
+export type NetworkActionType = 
+  | 'PING'
+  | 'SYNC_REQUEST' 
+  | 'SYNC_STATE' 
+  | 'PLAY_CARD' 
+  | 'PICK_UP' 
+  | 'SETUP_CONFIRM' 
+  | 'START_GAME'
+  | 'KICKED';
 
 export interface NetworkMessage {
   type: NetworkActionType;
   payload: any;
+  timestamp?: number;
   senderId?: string;
 }
 
@@ -94,4 +119,5 @@ export interface GameStateSnapshot {
   mustPlayAgain: boolean;
   winner: string | null;
   logs: string[];
+  lastUpdateTimestamp: number;
 }

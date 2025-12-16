@@ -146,7 +146,8 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
         activeConstraint: currentState?.activeConstraint || activeConstraint,
         mustPlayAgain: currentState?.mustPlayAgain || mustPlayAgain,
         winner: currentState?.winner || winner,
-        logs: currentState?.logs || logs
+        logs: currentState?.logs || logs,
+        lastUpdateTimestamp: Date.now()
     };
 
     p2pService.broadcast({
