@@ -1,3 +1,4 @@
+
 import { io, Socket } from 'socket.io-client';
 import { GameStateSnapshot } from '../types';
 
@@ -28,16 +29,23 @@ export class MultiplayerService {
     return new Promise((resolve, reject) => {
         try {
             this.socket = io(url, {
-                transports: ['websocket'],
-                upgrade: false,
-                reconnectionAttempts: 5,
-                timeout: 10000
+                // CRITICAL: Allow polling + websocket for Farcaster compatibility
+                transports: ['polling', 'websocket'], 
+                upgrade: true, // Allow upgrade from polling to ws
+                reconnectionAttempts: 10,
+                timeout: 20000,
+                withCredentials: true // Ensure cookies/headers pass for stickiness if needed
             });
 
             this.socket.on('connect', () => {
-                console.log('[Multiplayer] Socket Connected');
+                console.log('[Multiplayer] Socket Connected via', this.socket?.io.engine.transport.name);
                 this.myPeerId = this.socket?.id || 'unknown';
                 
+                // Monitor transport upgrades for debugging
+                this.socket?.io.engine.on("upgrade", () => {
+                    console.log("[Multiplayer] Transport upgraded to", this.socket?.io.engine.transport.name);
+                });
+
                 // Send Join request (Server handles creation if new)
                 this.socket?.emit('JOIN_ROOM', { roomId, playerName });
             });

@@ -62,15 +62,18 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200);
-  res.end('Palace Rulers Multiplayer Server (Socket.IO)');
+  res.end('Palace Rulers Multiplayer Server (Polling + WebSocket Enabled)');
 });
 
+// CRITICAL: Allow Polling + WebSocket
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: "*", // Allow Farcaster frames / any origin
+    methods: ["GET", "POST"],
+    credentials: true
   },
-  transports: ['websocket'] // Enforce WebSocket
+  transports: ['polling', 'websocket'], // MUST include polling for Farcaster
+  allowEIO3: true // Improved compatibility
 });
 
 // --- Room State Management ---
@@ -163,7 +166,12 @@ function checkHandState(player, room) {
 // --- Socket Handlers ---
 
 io.on('connection', (socket) => {
-  console.log('✅ Connected:', socket.id);
+  console.log('✅ Connected:', socket.id, 'via', socket.conn.transport.name);
+
+  // Monitor transport upgrades
+  socket.conn.on("upgrade", (transport) => {
+    console.log("⬆️ Upgraded transport to", transport.name);
+  });
 
   socket.on('JOIN_ROOM', ({ roomId, playerName }) => {
     const sanitizedRoomId = roomId.toUpperCase();
