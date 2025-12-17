@@ -38,10 +38,12 @@ export class P2PService {
 
     return new Promise((resolve, reject) => {
         try {
-            // Initialize Socket.IO with WebSocket transport preferred
+            // CRITICAL: Force WebSocket transport on client side too
             this.socket = io(url, {
-                transports: ['websocket', 'polling'], // Fallback enabled
-                reconnectionAttempts: 5
+                transports: ['websocket'], // Force WebSocket
+                upgrade: false,            // Disable upgrade from polling
+                reconnectionAttempts: 5,
+                timeout: 20000
             });
 
             this.socket.on('connect', () => {
@@ -53,7 +55,7 @@ export class P2PService {
             });
 
             this.socket.on('connect_error', (err) => {
-                console.error("[P2P] Socket Connection Error:", err);
+                console.error("[P2P] Socket Connection Error:", err.message);
                 if (this.onDisconnectCallback) this.onDisconnectCallback(`Connection Failed: ${err.message}`);
                 reject(err);
             });
@@ -89,8 +91,6 @@ export class P2PService {
 
   private sendSignal(type: SignalType, payload: any) {
     if (this.socket && this.socket.connected) {
-        // We only send 'SIGNAL' type events manually via this method for WebRTC exchange
-        // Room creation/joining is handled in connect()
         if (type === 'SIGNAL') {
             this.socket.emit('SIGNAL', payload);
         }

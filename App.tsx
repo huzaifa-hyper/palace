@@ -23,7 +23,8 @@ const getSignalingUrl = () => {
   }
 
   // 3. Production Fallback - RAILWAY (Socket.IO uses HTTPS)
-  return 'https://palace-rulers-signaling.up.railway.app';
+  // Use the specific URL requested by user logic or default
+  return 'https://palace-production.up.railway.app';
 };
 
 const SIGNALING_URL = getSignalingUrl();

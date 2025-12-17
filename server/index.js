@@ -10,16 +10,18 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200);
-  res.end('Palace Rulers Signaling Server Online (Socket.IO)');
+  res.end('Palace Rulers Signaling Server Online (WebSocket Only)');
 });
 
-// 2. Attach Socket.IO Server
+// 2. Attach Socket.IO Server with STRICT WebSocket Config
 const io = new Server(server, {
   cors: {
     origin: "*", // Allow Farcaster frames / any origin
     methods: ["GET", "POST"]
   },
-  transports: ['websocket', 'polling'] // Allow fallback if WS blocked
+  // CRITICAL: Force WebSocket transport to avoid Railway polling issues
+  transports: ['websocket'], 
+  allowUpgrades: false 
 });
 
 io.on('connection', (socket) => {
