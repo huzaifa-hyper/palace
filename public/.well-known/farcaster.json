@@ -1,7 +1,9 @@
 {
-  "name": "Palace Rulers",
-  "description": "Interactive rulebook and AI arbiter for the custom Palace Rulers card game.",
-  "requestFramePermissions": [],
+  "accountAssociation": {
+    "header": "farcaster",
+    "payload": "<PASTE_PAYLOAD_FROM_WARPCAST>",
+    "signature": "<PASTE_SIGNATURE_FROM_WARPCAST>"
+  },
   "frame": {
     "version": "1",
     "name": "Palace Rulers",
