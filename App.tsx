@@ -23,7 +23,6 @@ const getSignalingUrl = () => {
   }
 
   // 3. Production Fallback - RAILWAY (Socket.IO uses HTTPS)
-  // Use the specific URL requested by user logic or default
   return 'https://palace-production.up.railway.app';
 };
 
@@ -53,6 +52,18 @@ export default function App() {
     isEligible: false,
     chainId: null
   });
+
+  // --- Initialize Farcaster SDK ---
+  useEffect(() => {
+    const initSdk = async () => {
+      try {
+        await sdk.actions.ready();
+      } catch (err) {
+        console.warn("Failed to call sdk.actions.ready():", err);
+      }
+    };
+    initSdk();
+  }, []);
 
   // --- Profile Logic ---
   useEffect(() => {
