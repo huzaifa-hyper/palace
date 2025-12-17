@@ -1,7 +1,6 @@
 
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const http = require('http');
 
 // --- Game Constants & Helpers ---
@@ -59,7 +58,7 @@ function createDeck() {
 // --- App Setup ---
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // Updated from body-parser
 
 // --- Room State Management ---
 // Map<roomId, GameState>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, RotateCcw, Trophy, Timer, Volume2, VolumeX, Eye, User, X, Globe, Check, Clock, Hand, ChevronRight, ArrowDown } from 'lucide-react';
+import { Play, RotateCcw, Trophy, Timer, Volume2, VolumeX, Eye, User, X, Globe, Check, Clock, Hand, ChevronRight, ArrowDown, Bot, EyeOff } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Suit, Rank, Card, Player, GamePhase, UserProfile, GameMode, GameStateSnapshot } from '../types';
 import { audioService } from '../services/audioService';
@@ -8,7 +8,6 @@ import { MOCK_PLAYER_NAMES } from '../constants';
 import { p2pService } from '../services/p2pService';
 
 // --- Game Logic Helpers (Local Only) ---
-// Note: Online logic is now handled by server. These are used for VS_BOT and PASS_AND_PLAY.
 
 const getCardValue = (rank: Rank): number => {
   switch (rank) {
@@ -84,10 +83,10 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isHandRevealed, setIsHandRevealed] = useState<boolean>(false);
+  const [showPassAndPlayInterstitial, setShowPassAndPlayInterstitial] = useState(false);
   
   // Visual State
   const [pileRotations, setPileRotations] = useState<number[]>([]);
-  const [timeLeft, setTimeLeft] = useState<number>(20);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const isOnline = mode === 'ONLINE_HOST' || mode === 'ONLINE_CLIENT';
@@ -97,7 +96,12 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       if (players.length === 0) return -1;
       
       if (isOnline) {
-          // Robust way: Find player by name as sent to server
+          if (myPeerId) {
+             const parsedId = parseInt(myPeerId);
+             if (!isNaN(parsedId) && players[parsedId]) {
+                 return parsedId;
+             }
+          }
           return players.findIndex(p => p.name === userProfile.name);
       }
       
@@ -105,7 +109,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       if (mode === 'PASS_AND_PLAY') return turnIndex; 
       
       return -1;
-  }, [isOnline, mode, players, turnIndex, userProfile.name]);
+  }, [isOnline, mode, players, turnIndex, userProfile.name, myPeerId]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -131,10 +135,8 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   // --- ONLINE: Synchronization ---
   useEffect(() => {
     if (isOnline) {
-        // Listen to server state
         p2pService.onGameState((state: GameStateSnapshot) => {
             setPlayers(state.players);
-            // Deck is handled as count on server, but we need array for visual logic
             setDeck(Array(state.deckCount).fill({} as Card)); 
             setPile(state.pile);
             setPileRotations(state.pileRotations);
@@ -145,7 +147,6 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
             setWinner(state.winner);
             setLogs(state.logs);
 
-            // Audio triggers based on logs
             const lastLog = state.logs[state.logs.length - 1];
             if (lastLog && !logs.includes(lastLog)) {
                 if (lastLog.includes('plays')) playSound('PLACE');
@@ -175,6 +176,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       if (mode === 'VS_BOT') {
           isHuman = i === 0;
           if (isHuman) name = userProfile.name;
+          else name = MOCK_PLAYER_NAMES[(i - 1) % MOCK_PLAYER_NAMES.length];
       } else if (mode === 'PASS_AND_PLAY') {
           isHuman = true;
           if (i === 0) name = userProfile.name;
@@ -214,11 +216,100 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     setMustPlayAgain(false);
     setWinner(null);
     setIsHandRevealed(mode !== 'PASS_AND_PLAY'); 
-    setLogs(["Game Started. Players must fortify their positions."]);
+    setShowPassAndPlayInterstitial(false);
+    setLogs(["Game Started. Fortify your positions!"]);
   };
 
-  // --- Local Game Flow (OFFLINE ONLY) ---
-  // Helper methods for offline logic...
+  // --- BOT LOGIC (Offline Only) ---
+  useEffect(() => {
+    if (isOnline || phase !== 'PLAYING') return;
+
+    const currentPlayer = players[turnIndex];
+    if (currentPlayer && !currentPlayer.isHuman) {
+        const thinkTime = 1200 + Math.random() * 1000;
+        const timer = setTimeout(() => {
+            executeBotTurn(currentPlayer);
+        }, thinkTime);
+        return () => clearTimeout(timer);
+    }
+  }, [turnIndex, phase, players, isOnline]);
+
+  const executeBotTurn = (bot: Player) => {
+      let source: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
+      let availableCards = bot.hand;
+
+      if (bot.hand.length === 0) {
+          if (bot.faceUpCards.length > 0) {
+              source = 'FACEUP';
+              availableCards = bot.faceUpCards;
+          } else {
+              source = 'HIDDEN';
+              availableCards = bot.hiddenCards;
+          }
+      }
+
+      if (source === 'HIDDEN') {
+          if (availableCards.length > 0) {
+              attemptPlayCards(bot.id, [availableCards[0]], source);
+          }
+          return;
+      }
+
+      const topCard = pile.length > 0 ? pile[pile.length - 1] : null;
+
+      const groups: Record<string, Card[]> = {};
+      availableCards.forEach(c => {
+          if (!groups[c.rank]) groups[c.rank] = [];
+          groups[c.rank].push(c);
+      });
+
+      const validMoves: Card[][] = [];
+
+      Object.values(groups).forEach(group => {
+          const sample = group[0];
+          let isValid = false;
+
+          const isTwo = sample.rank === Rank.Two;
+          const isTen = sample.rank === Rank.Ten;
+          const isSeven = sample.rank === Rank.Seven;
+
+          if (isTwo || isTen || isSeven) {
+              isValid = true;
+          } else if (!topCard) {
+              isValid = true;
+          } else {
+              if (activeConstraint === 'LOWER_THAN_7') {
+                  if (sample.value < 7) isValid = true;
+              } else {
+                  if (sample.value >= topCard.value) isValid = true;
+              }
+          }
+
+          if (isValid) validMoves.push(group);
+      });
+
+      if (validMoves.length === 0) {
+          handlePickupPile(bot.id);
+          return;
+      }
+
+      validMoves.sort((a, b) => {
+          const cardA = a[0];
+          const cardB = b[0];
+          const isPowerA = cardA.rank === Rank.Two || cardA.rank === Rank.Ten;
+          const isPowerB = cardB.rank === Rank.Two || cardB.rank === Rank.Ten;
+          if (isPowerA && !isPowerB) return 1;
+          if (!isPowerA && isPowerB) return -1;
+          if (cardA.value !== cardB.value) return cardA.value - cardB.value;
+          return b.length - a.length;
+      });
+
+      const bestMove = validMoves[0];
+      attemptPlayCards(bot.id, bestMove, source);
+  };
+
+  // --- Local Game Action Handlers ---
+
   const addLog = (msg: string) => {
     const newLogs = [...logs, msg];
     setLogs(newLogs);
@@ -229,9 +320,13 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     setMustPlayAgain(false);
     const nextIndex = (turnIndex + 1) % currentPlayers.length;
     setTurnIndex(nextIndex);
-    if (mode === 'PASS_AND_PLAY' && currentPlayers[nextIndex].isHuman) {
+    
+    // Pass and Play Logic: Hide Hand immediately
+    if (mode === 'PASS_AND_PLAY') {
         setIsHandRevealed(false);
+        setShowPassAndPlayInterstitial(true);
     }
+    
     return nextIndex;
   };
 
@@ -245,7 +340,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
 
   const checkHandStateLocal = (player: Player, logArray: string[]) => {
     if (player.hand.length <= 1 && player.faceUpCards.length > 0) {
-       logArray.push(`${player.name} picks up their Stronghold!`);
+       logArray.push(`${player.name} activates Stronghold!`);
        player.hand.push(...player.faceUpCards);
        player.faceUpCards = [];
        if (!player.isHuman && mode === 'VS_BOT') {
@@ -265,23 +360,19 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     return false;
   };
 
-  // --- ACTIONS ---
-
   const handlePickupPile = (playerIndex: number) => {
     if (isOnline) {
-        // Online: Delegate to server
         p2pService.sendPickup();
         return;
     }
     
-    // Offline Logic
     if (phase !== 'PLAYING') return;
     const newPlayers = [...players];
     const player = newPlayers[playerIndex];
     let currentLogs = [...logs];
 
     if (pile.length > 0) {
-        currentLogs.push(`${player.name} picks up the pile (${pile.length} cards).`);
+        currentLogs.push(`${player.name} picks up ${pile.length} cards.`);
         player.hand = [...player.hand, ...pile];
         playSound('CLICK');
     } else {
@@ -301,29 +392,26 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
 
   const attemptPlayCards = (playerIndex: number, cards: Card[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
     if (isOnline) {
-        // Online: Delegate to server
-        // Optimistic update: clear selection
         setSelectedCardIds([]);
         p2pService.sendPlayCard(cards, source);
         return;
     }
 
-    // Offline Logic
     const newPlayers = [...players];
     const newDeck = [...deck];
     const player = newPlayers[playerIndex];
     const cardProto = cards[0]; 
     let currentLogs = [...logs];
     
-    // Validate Source
+    // --- Validation Logic ---
     if (source === 'FACEUP' && player.hand.length > 0) {
-      currentLogs.push("Cannot play Face-Up cards while you have cards in hand.");
+      currentLogs.push("Must empty hand before using Face-Up cards.");
       setLogs(currentLogs);
       playSound('ERROR');
       return;
     }
     if (source === 'HIDDEN' && (player.hand.length > 0 || player.faceUpCards.length > 0)) {
-       currentLogs.push("Cannot play Hidden cards yet.");
+       currentLogs.push("Must empty hand & face-up before using Hidden cards.");
        setLogs(currentLogs);
        playSound('ERROR');
        return;
@@ -373,7 +461,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       }
     }
 
-    // Execute
+    // --- Execution Logic ---
     const cardIds = cards.map(c => c.id);
     if (source === 'HAND') player.hand = player.hand.filter(c => !cardIds.includes(c.id));
     else if (source === 'FACEUP') player.faceUpCards = player.faceUpCards.filter(c => !cardIds.includes(c.id));
@@ -384,7 +472,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     setPileRotations(newPileRotations);
 
     if (isTen) {
-       currentLogs.push(`${player.name} burns the pile with ${cards.length > 1 ? cards.length + 'x ' : ''}10! 🔥`);
+       currentLogs.push(`${player.name} BURNS the pile! 🔥`);
        playSound('BURN');
        setPile([]); 
        setPileRotations([]);
@@ -392,9 +480,10 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
        drawCardsLocal(player, newDeck);
        checkHandStateLocal(player, currentLogs);
        if (checkWinConditionLocal(player)) return;
-       advanceTurnLocal(newPlayers); 
+       setTurnIndex(turnIndex); // Play again
+       setMustPlayAgain(true);
     } else if (isTwo) {
-       currentLogs.push(`${player.name} resets with ${cards.length > 1 ? cards.length + 'x ' : ''}2! 🔄`);
+       currentLogs.push(`${player.name} RESETS with ${cards.length > 1 ? cards.length + 'x ' : ''}2! 🔄`);
        playSound('RESET');
        setActiveConstraint('NONE');
        setPile([...pile, ...cards]);
@@ -402,7 +491,6 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
        checkHandStateLocal(player, currentLogs);
        if (checkWinConditionLocal(player)) return;
        setMustPlayAgain(true);
-       setTimeLeft(20); 
        currentLogs.push(`${player.name} plays again!`);
     } else {
        currentLogs.push(`${player.name} plays ${cards.length > 1 ? cards.length + 'x ' : ''}${cardProto.rank}.`);
@@ -427,8 +515,6 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     setSelectedCardIds([]);
   };
 
-  // --- Interaction (Setup) ---
-
   const handleHumanSetupToggle = (card: Card) => {
     if (myPlayerId === -1 || !players[myPlayerId]) return;
     const pIndex = myPlayerId;
@@ -451,7 +537,11 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   const confirmSetup = () => {
-    if (myPlayerId === -1) return;
+    // If Pass & Play, we might need to cycle through all players for setup? 
+    // For simplicity in P&P, we might auto-setup for non-primary or let them do it. 
+    // The current logic: `isHuman` is true for all in P&P.
+    // So we iterate.
+    
     const pIndex = myPlayerId;
     const p = players[pIndex];
 
@@ -462,57 +552,65 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
     }
 
     if (isOnline) {
-       // Online: Send to server
        p2pService.sendSetup(p.faceUpCards, p.hand);
-       // Optimistic update to show waiting state
        const newPlayers = [...players];
        newPlayers[pIndex] = { ...newPlayers[pIndex], hasSelectedSetup: true };
        setPlayers(newPlayers);
        return;
     }
 
-    // Offline
     const newPlayers = [...players];
     newPlayers[pIndex] = { ...newPlayers[pIndex], hasSelectedSetup: true };
+    
+    // Check if next player needs setup (Pass & Play)
+    if (mode === 'PASS_AND_PLAY') {
+       const nextHumanSetup = newPlayers.find(pl => pl.isHuman && !pl.hasSelectedSetup);
+       if (nextHumanSetup) {
+          // Transition to next player for setup
+          setPlayers(newPlayers);
+          // If we had a "turn" index for setup, we'd advance it. 
+          // Currently `activeSetupPlayer` is derived from `players.find`. 
+          // We need an interstitial if we switch people.
+          setShowPassAndPlayInterstitial(true);
+          return;
+       }
+    }
+
     setPlayers(newPlayers);
     
     const allReady = newPlayers.every(pl => pl.hasSelectedSetup);
     if (allReady) {
       setPhase('PLAYING');
       playSound('VICTORY');
-      addLog("All Rulers Ready. The Battle Begins!");
+      addLog("Battle Begins!");
       setTurnIndex(0);
       setIsHandRevealed(mode !== 'PASS_AND_PLAY');
+      setShowPassAndPlayInterstitial(mode === 'PASS_AND_PLAY');
     }
   };
 
   const handleCardClick = (card: Card, source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
-    // Identity Check
     const currentPlayer = players[turnIndex];
     
-    // In Online mode, ensure it's "Me" interacting with "My" cards
-    // The render loop already gates this interaction generally, but good to be safe.
     if (isOnline) {
-        // Just select locally; play button triggers attemptPlayCards which sends to server
     } else {
         if (!currentPlayer.isHuman && mode !== 'PASS_AND_PLAY') return;
         if (mode === 'PASS_AND_PLAY' && !isHandRevealed) return;
     }
 
     if (source === 'HIDDEN') {
-      // Hidden play is instant
       if (turnIndex !== myPlayerId) return;
       attemptPlayCards(turnIndex, [card], source);
       return;
     }
 
-    // Selection Logic
     if (selectedCardIds.includes(card.id)) {
        setSelectedCardIds(prev => prev.filter(id => id !== card.id));
        playSound('CLICK');
     } else {
-       const myHand = players[myPlayerId].hand; // My Hand
+       const myHand = players[myPlayerId].hand; 
        const currentSelection = myHand.filter(c => selectedCardIds.includes(c.id));
+       
        if (currentSelection.length === 0 || currentSelection[0].rank === card.rank) {
           setSelectedCardIds([...selectedCardIds, card.id]);
           playSound('CLICK');
@@ -524,13 +622,38 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   };
 
   // --- Rendering ---
-  // (Re-using existing visual logic, simplified)
 
   if (players.length === 0) {
       return <div className="flex items-center justify-center h-full text-white">Loading Game...</div>;
   }
 
-  // Active Setup Player
+  // Pass & Play Interstitial (Privacy Screen)
+  if (showPassAndPlayInterstitial && mode === 'PASS_AND_PLAY' && phase !== 'GAME_OVER') {
+      // Determine who's next (either setup or play)
+      const setupTarget = players.find(p => p.isHuman && !p.hasSelectedSetup);
+      const nextPlayer = setupTarget || players[turnIndex];
+
+      return (
+        <div className="absolute inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
+             <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-amber-500/50 flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(245,158,11,0.2)]">
+                <User className="w-10 h-10 text-amber-500" />
+             </div>
+             <h2 className="text-3xl font-bold text-white mb-2">Pass to {nextPlayer.name}</h2>
+             <p className="text-slate-400 mb-8">Tap below when you are ready to reveal your hand.</p>
+             <button 
+               onClick={() => {
+                   setShowPassAndPlayInterstitial(false);
+                   setIsHandRevealed(true);
+                   playSound('CLICK');
+               }}
+               className="bg-amber-600 hover:bg-amber-500 text-white px-10 py-4 rounded-full font-bold shadow-lg flex items-center gap-2 transition-transform hover:scale-105"
+             >
+                <Eye className="w-5 h-5" /> I am {nextPlayer.name}
+             </button>
+        </div>
+      );
+  }
+
   const activeSetupPlayer = isOnline ? players[myPlayerId] : players.find(p => p.isHuman && !p.hasSelectedSetup);
   
   if (phase === 'SETUP') {
@@ -564,7 +687,6 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       }
   }
 
-  // --- Main Board ---
   let rotationOffset = 0;
   if (isOnline && myPlayerId !== -1) rotationOffset = myPlayerId;
   const bottomPlayer = isOnline ? players[myPlayerId] : (mode === 'PASS_AND_PLAY' ? players[turnIndex] : players[0]);
@@ -577,7 +699,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
   });
 
   return (
-    <div className={`flex flex-col h-[calc(100vh-80px)] md:h-[calc(100vh-140px)] w-full max-w-7xl mx-auto relative select-none rounded-xl md:rounded-[2.5rem] overflow-hidden border border-white/5 transition-all duration-1000 bg-felt shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]`}>
+    <div className={`flex flex-col h-[calc(100vh-80px)] md:h-[calc(100vh-140px)] w-full max-w-7xl mx-auto relative select-none rounded-xl md:rounded-[2.5rem] overflow-hidden border border-white/5 transition-all duration-1000 bg-felt shadow-[inset_0_0_100px_rgba(0,0,0,0.5)] touch-none`}>
       {/* Top Controls */}
       <div className="absolute top-4 left-4 right-4 flex justify-between z-50 pointer-events-none">
         <button onClick={() => setIsMuted(!isMuted)} className="pointer-events-auto bg-slate-900/50 p-2 rounded-full text-slate-400 hover:text-white border border-white/10">{isMuted ? <VolumeX size={20}/> : <Volume2 size={20}/>}</button>
@@ -593,33 +715,41 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
         </div>
       )}
 
-      {/* Opponents */}
-      <div className="relative z-10 flex justify-center gap-2 md:gap-16 pt-6 pb-4 md:pt-12 min-h-[120px]">
+      {/* Opponents Area - Adapts to 1, 2, or 3 opponents */}
+      <div className="relative z-10 flex justify-center gap-2 md:gap-16 pt-4 pb-4 md:pt-12 min-h-[100px] md:min-h-[120px] px-2">
         {otherPlayers.map(opp => (
-          <div key={opp.id} className="flex flex-col items-center transition-all duration-500">
-            <div className={`relative w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-bold border-[3px] shadow-xl z-20 ${turnIndex === opp.id ? 'border-amber-500 bg-slate-800 text-amber-500 scale-110' : 'border-slate-700 bg-slate-800 text-slate-500'}`}>
+          <div key={opp.id} className="flex flex-col items-center transition-all duration-500 scale-75 md:scale-100">
+            <div className={`relative w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-bold border-[3px] shadow-xl z-20 transition-all duration-300 ${turnIndex === opp.id ? 'border-amber-500 bg-slate-800 text-amber-500 scale-110 shadow-[0_0_15px_rgba(245,158,11,0.5)]' : 'border-slate-700 bg-slate-800 text-slate-500'}`}>
               <span className="font-playfair">{opp.name.charAt(0)}</span>
+              {!opp.isHuman && <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-slate-700"><Bot size={12} className="text-slate-400"/></div>}
               {turnIndex === opp.id && <div className="absolute -inset-1 border border-amber-500/30 rounded-full animate-ping"></div>}
             </div>
-            <div className="text-[10px] md:text-xs text-slate-400 mt-2 font-bold max-w-[80px] truncate">{opp.name}</div>
+            <div className="text-[10px] md:text-xs text-slate-400 mt-2 font-bold max-w-[80px] truncate text-center">{opp.name}</div>
             <div className="relative mt-1 h-12 w-20 flex justify-center">
                 {opp.hand.length > 0 ? (
                     <div className="relative">
                         {Array.from({ length: Math.min(opp.hand.length, 5) }).map((_, i) => (
-                             <div key={i} className="absolute w-8 h-12 bg-slate-800 border border-slate-600 rounded shadow-md origin-bottom" style={{ transform: `translateX(${(i-2)*4}px) rotate(${(i-2)*10}deg)` }}></div>
+                             <div key={i} className="absolute w-8 h-12 bg-slate-800 border border-slate-600 rounded shadow-md origin-bottom" style={{ transform: `translateX(${(i-2)*4}px) rotate(${(i-2)*8}deg)` }}></div>
                         ))}
-                        <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-black/60 px-2 rounded-full text-[10px] text-white border border-white/10 z-30">{opp.hand.length}</div>
+                        <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-black/80 px-2 py-0.5 rounded-full text-[10px] text-white border border-white/10 z-30 font-mono shadow-sm">{opp.hand.length}</div>
                     </div>
-                ) : <div className="text-[10px] text-emerald-400 font-bold animate-pulse mt-2">SAFE</div>}
+                ) : <div className="text-[10px] text-emerald-400 font-bold animate-pulse mt-2 bg-emerald-900/20 px-2 py-1 rounded-full border border-emerald-500/20">SAFE</div>}
+            </div>
+            {/* Opponent Stronghold (Simplified view) */}
+            <div className="flex gap-1 mt-1 opacity-50 scale-75">
+                {opp.faceUpCards.map((c, i) => (
+                    <div key={i} className="w-4 h-6 bg-slate-700 rounded border border-slate-500"></div>
+                ))}
             </div>
           </div>
         ))}
       </div>
 
       {/* Center Arena */}
-      <div className="flex-1 relative z-10 flex items-center justify-center gap-8 md:gap-32 -mt-4 md:mt-0">
-         <div className="flex flex-col items-center gap-3 scale-90 md:scale-100">
-            <span className="text-[10px] tracking-widest text-slate-600 font-bold">DECK</span>
+      <div className="flex-1 relative z-10 flex items-center justify-center gap-4 md:gap-32 -mt-4 md:mt-0">
+         {/* Deck */}
+         <div className="flex flex-col items-center gap-2 scale-75 md:scale-100 origin-right">
+            <span className="text-[10px] tracking-widest text-slate-600 font-bold hidden md:block">DECK</span>
             <div className="relative">
                {deck.length > 0 ? (
                  <>
@@ -630,13 +760,14 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
             </div>
          </div>
 
-         <div className="flex flex-col items-center gap-4 min-w-[140px] md:min-w-[180px] z-20">
+         {/* Pile */}
+         <div className="flex flex-col items-center gap-4 min-w-[120px] md:min-w-[180px] z-20">
             {activeConstraint === 'LOWER_THAN_7' && (
-              <div className="absolute -top-12 px-4 py-1.5 bg-emerald-900/60 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-bold animate-pulse flex items-center gap-2">
+              <div className="absolute -top-12 px-4 py-1.5 bg-emerald-900/60 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-bold animate-pulse flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.4)]">
                 <ArrowDown size={14} /> LIMIT &lt; 7
               </div>
             )}
-            <div className="relative w-32 h-44 md:w-40 md:h-52 flex items-center justify-center">
+            <div className="relative w-28 h-40 md:w-40 md:h-52 flex items-center justify-center">
                <div className={`absolute inset-0 border-2 border-dashed rounded-xl transition-colors ${activeConstraint === 'LOWER_THAN_7' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-white/5'}`}></div>
                {pile.length === 0 ? <span className="text-slate-600 font-bold tracking-widest opacity-30 text-sm">DROP ZONE</span> : (
                   <div className="relative w-full h-full flex items-center justify-center">
@@ -648,10 +779,11 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
                     ))}
                   </div>
                )}
-               {pile.length > 0 && <div className="absolute -bottom-4 bg-slate-800/80 text-slate-300 px-3 py-1 rounded-full text-xs border border-slate-600 shadow-lg font-mono z-30">{pile.length} CARDS</div>}
+               {pile.length > 0 && <div className="absolute -bottom-4 bg-slate-800/80 text-slate-300 px-3 py-1 rounded-full text-xs border border-slate-600 shadow-lg font-mono z-30">{pile.length}</div>}
             </div>
          </div>
          
+         {/* Log - Hidden on mobile, can be toggled in future */}
          <div className="absolute right-8 top-0 bottom-10 w-72 hidden xl:block pointer-events-none">
             <div className="bg-slate-950/40 backdrop-blur-lg border border-white/5 rounded-2xl h-full flex flex-col pointer-events-auto shadow-2xl overflow-hidden p-4">
                <div className="text-xs font-bold text-slate-400 tracking-widest uppercase mb-2">Game Log</div>
@@ -664,13 +796,15 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
       </div>
 
       {/* Player Dashboard */}
-      <div className={`relative z-20 pt-4 pb-2 px-4 border-t transition-colors duration-700 ${turnIndex === bottomPlayer.id ? 'bg-gradient-to-t from-amber-900/30 via-slate-900/80 to-slate-900/0 border-amber-500/20' : 'bg-gradient-to-t from-slate-900 via-slate-900/80 to-slate-900/0 border-transparent'}`}>
-         <div className="max-w-4xl mx-auto flex flex-col gap-2 md:gap-4">
+      <div className={`relative z-20 pt-2 pb-safe-area-bottom px-4 border-t transition-colors duration-700 ${turnIndex === bottomPlayer.id ? 'bg-gradient-to-t from-amber-900/30 via-slate-900/80 to-slate-900/0 border-amber-500/20' : 'bg-gradient-to-t from-slate-900 via-slate-900/80 to-slate-900/0 border-transparent'}`}>
+         <div className="max-w-4xl mx-auto flex flex-col gap-1 md:gap-4">
+            
+            {/* Status Bar */}
             <div className="flex justify-between items-end h-10 md:h-12 px-2 relative z-[200]">
                <div className="flex items-center gap-3 md:gap-4">
-                 <div className={`w-3 h-3 rounded-full shadow-[0_0_10px_currentColor] transition-colors duration-500 ${turnIndex === bottomPlayer.id ? 'bg-amber-500 text-amber-500 animate-pulse' : 'bg-slate-600 text-slate-600'}`}></div>
-                 <span className={`text-lg md:text-2xl font-playfair font-bold transition-all duration-500 ${turnIndex === bottomPlayer.id ? 'text-amber-100 drop-shadow-sm' : 'text-slate-500'}`}>
-                    {turnIndex === bottomPlayer.id ? (mustPlayAgain ? `${bottomPlayer.name} Plays Again!` : `${bottomPlayer.name}'s Turn`) : `${players[turnIndex].name} is playing...`}
+                 <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full shadow-[0_0_10px_currentColor] transition-colors duration-500 ${turnIndex === bottomPlayer.id ? 'bg-amber-500 text-amber-500 animate-pulse' : 'bg-slate-600 text-slate-600'}`}></div>
+                 <span className={`text-base md:text-2xl font-playfair font-bold transition-all duration-500 ${turnIndex === bottomPlayer.id ? 'text-amber-100 drop-shadow-sm' : 'text-slate-500'}`}>
+                    {turnIndex === bottomPlayer.id ? (mustPlayAgain ? `${bottomPlayer.name} Plays Again!` : `${bottomPlayer.name}'s Turn`) : `${players[turnIndex].name} is thinking...`}
                  </span>
                </div>
                
@@ -680,19 +814,21 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
                       <button onClick={() => {
                         const selected = bottomPlayer.hand.filter(c => selectedCardIds.includes(c.id));
                         if(selected.length > 0) attemptPlayCards(bottomPlayer.id, selected, 'HAND');
-                      }} className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-in fade-in slide-in-from-bottom-2 flex items-center gap-2 hover:scale-105 transition-transform">
+                      }} className="bg-amber-600 hover:bg-amber-500 text-white px-4 md:px-6 py-2 rounded-full font-bold shadow-lg animate-in fade-in slide-in-from-bottom-2 flex items-center gap-2 hover:scale-105 transition-transform text-sm md:text-base">
                         <Play size={14} fill="currentColor" /> Play {selectedCardIds.length}
                       </button>
                     )}
-                    <button onClick={() => handlePickupPile(bottomPlayer.id)} className="bg-slate-800 hover:bg-red-900/40 text-slate-300 hover:text-red-200 px-6 py-2 rounded-full border border-slate-600 hover:border-red-500/50 transition-all flex items-center gap-2 backdrop-blur-md">
+                    <button onClick={() => handlePickupPile(bottomPlayer.id)} className="bg-slate-800 hover:bg-red-900/40 text-slate-300 hover:text-red-200 px-4 md:px-6 py-2 rounded-full border border-slate-600 hover:border-red-500/50 transition-all flex items-center gap-2 backdrop-blur-md text-sm md:text-base">
                        <RotateCcw size={14} /> Pick Up
                     </button>
                  </div>
                )}
             </div>
 
-            <div className="flex items-end justify-center gap-4 md:gap-16 min-h-[160px] md:min-h-[220px]">
-               <div className="flex flex-col items-center gap-2 mb-4 scale-75 md:scale-100 origin-bottom-left group">
+            {/* Hand & Stronghold Area */}
+            <div className="flex items-end justify-center gap-2 md:gap-16 min-h-[160px] md:min-h-[220px]">
+               {/* Stronghold (Bottom Left) */}
+               <div className="flex flex-col items-center gap-1 mb-4 scale-[0.65] md:scale-100 origin-bottom-left group">
                   <div className="relative h-32 w-24">
                     <div className="absolute inset-0 bg-amber-500/5 rounded-xl border border-amber-500/10 transform rotate-3 scale-110"></div>
                     <div className="absolute inset-0 flex justify-center items-end opacity-60">
@@ -713,18 +849,23 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
                   <span className="text-[10px] text-amber-500/60 font-bold uppercase tracking-widest">Stronghold</span>
                </div>
 
-               <div className="flex-1 flex justify-center max-w-2xl pb-4 md:pb-8 overflow-visible relative h-[220px] pointer-events-none">
+               {/* Active Hand (Bottom Center) */}
+               <div className="flex-1 flex justify-center max-w-2xl pb-4 md:pb-8 overflow-visible relative h-[200px] md:h-[220px] pointer-events-none">
                  <div className="absolute bottom-0 flex items-end justify-center w-full perspective-1000 h-[200px]" onMouseLeave={() => setHoveredCardId(null)}>
                    {bottomPlayer.hand.map((c, i) => {
                      const isSelected = selectedCardIds.includes(c.id);
                      const isHovered = hoveredCardId === c.id;
                      const len = bottomPlayer.hand.length;
                      const center = (len - 1) / 2;
-                     const spreadFactor = len > 8 ? 25 : 35;
+                     // Tighter spread on mobile
+                     const spreadFactor = typeof window !== 'undefined' && window.innerWidth < 768 
+                         ? (len > 8 ? 20 : 30) // Mobile
+                         : (len > 8 ? 25 : 35); // Desktop
+                         
                      const rotateFactor = 4;
                      const offset = (i - center) * spreadFactor;
                      const rotate = (i - center) * rotateFactor;
-                     const yArch = Math.abs(i - center) * 5;
+                     const yArch = Math.abs(i - center) * (typeof window !== 'undefined' && window.innerWidth < 768 ? 3 : 5);
                      
                      let translateY = yArch;
                      if (isSelected) translateY -= 60;
@@ -738,7 +879,7 @@ export const Game: React.FC<GameProps> = ({ mode, playerCount, userProfile, conn
 
                      return (
                        <div key={c.id} onClick={() => handleCardClick(c, 'HAND')} onMouseEnter={() => setHoveredCardId(c.id)}
-                            style={{ zIndex, transform: `translateX(${offset}px) translateY(${translateY}px) rotate(${rotate}deg) scale(${scale})`, position: 'absolute', bottom: '0px', transformOrigin: '50% 120%' }}
+                            style={{ zIndex, transform: `translateX(${offset}px) translateY(${translateY}px) rotate(${rotate}deg) scale(${scale})`, position: 'absolute', bottom: '10px', transformOrigin: '50% 120%' }}
                             className="pointer-events-auto transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer touch-none will-change-transform">
                           <PlayingCard {...c} selected={isSelected} className={isSelected ? 'shadow-[0_0_40px_rgba(245,158,11,0.6)]' : 'shadow-2xl'} />
                        </div>

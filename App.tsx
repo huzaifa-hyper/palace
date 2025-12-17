@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot } from 'lucide-react';
+import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot, Lock } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { PlayingCard } from './components/PlayingCard';
 import { Arbiter } from './components/Arbiter';
@@ -22,7 +23,7 @@ const getSignalingUrl = () => {
       return 'http://localhost:8080';
   }
 
-  // 3. Production Fallback - RAILWAY (Socket.IO uses HTTPS)
+  // 3. Production Fallback - RAILWAY
   return 'https://palace-production.up.railway.app';
 };
 
@@ -34,13 +35,13 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<{ mode: GameMode; playerCount: number } | null>(null);
   const [tempName, setTempName] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(true);
+  const [offlineSetupMode, setOfflineSetupMode] = useState<GameMode | null>(null);
   
   // P2P State
   const [lobbyId, setLobbyId] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [connectedPeers, setConnectedPeers] = useState<any[]>([]);
-  const [isHost, setIsHost] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
   // --- Wallet State ---
@@ -93,27 +94,6 @@ export default function App() {
     }
   }, []);
 
-  // --- Deterministic Room ID Detection ---
-  useEffect(() => {
-      const initContext = async () => {
-          try {
-              const context = await sdk.context;
-              if (context?.location?.cast?.hash) {
-                  // Use Cast Hash as Room ID
-                  setLobbyId(context.location.cast.hash.substring(0, 6).toUpperCase());
-              } else {
-                  // Browser Fallback: Check URL Params
-                  const params = new URLSearchParams(window.location.search);
-                  const rid = params.get('room');
-                  if (rid) setLobbyId(rid.toUpperCase());
-              }
-          } catch(e) {
-              console.log("Not in Farcaster context");
-          }
-      };
-      initContext();
-  }, []);
-
   const handleCreateProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempName.trim()) return;
@@ -146,13 +126,14 @@ export default function App() {
     }
   };
 
-  const checkMultiplayerEligibility = () => {
+  // --- STRICT GATEKEEPING ---
+  const checkGameEligibility = () => {
     if (!wallet.isConnected) {
-      setWalletError("Please connect your Soneium Minato wallet to play multiplayer.");
+      setWalletError("Access Denied: Please connect your Soneium Minato wallet to play.");
       return false;
     }
     if (!wallet.isEligible || (wallet.balanceUsdValue || 0) < 0.25) {
-      setWalletError(`Insufficient Funds. You need at least $0.25 USD worth of Soneium ETH to play.`);
+      setWalletError(`Insufficient Funds: You need at least $0.25 USD worth of Soneium ETH to play ANY mode.`);
       return false;
     }
     return true;
@@ -170,7 +151,6 @@ export default function App() {
         setConnectionStatus(status);
         if (status === 'WAITING_FOR_OPPONENT') {
             setStatusMessage('Waiting for Opponent...');
-            setIsHost(true);
         } else if (status === 'ESTABLISHING_P2P') {
             setStatusMessage('Opening P2P Tunnel (WebRTC)...');
         } else if (status === 'CONNECTED') {
@@ -202,7 +182,7 @@ export default function App() {
 
   const handleHostGame = async () => {
     setWalletError(null);
-    if (!checkMultiplayerEligibility()) return;
+    if (!checkGameEligibility()) return; // Wallet Check
     
     const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     setLobbyId(newCode);
@@ -211,7 +191,7 @@ export default function App() {
 
   const handleJoinGame = async () => {
     setWalletError(null);
-    if (!checkMultiplayerEligibility()) return;
+    if (!checkGameEligibility()) return; // Wallet Check
     if (!lobbyId) return;
     
     await connectToLobby(lobbyId, 'join');
@@ -223,6 +203,17 @@ export default function App() {
       setGameConfig(null);
   };
 
+  // Start Local Game (Clean up any online connections first)
+  const startLocalGame = (mode: GameMode, playerCount: number) => {
+      setWalletError(null);
+      if (!checkGameEligibility()) return; // Wallet Check for OFFLINE too
+
+      p2pService.destroy(); 
+      setConnectionStatus(null);
+      setGameConfig({ mode, playerCount });
+      setOfflineSetupMode(null);
+  };
+
   const exitGame = () => {
     p2pService.destroy();
     setGameConfig(null);
@@ -232,7 +223,15 @@ export default function App() {
 
   // --- Renderers ---
 
-  if (gameConfig && userProfile && connectionStatus === 'GAME_ACTIVE') {
+  // Decide if we should render the Game component
+  const shouldRenderGame = gameConfig && userProfile && (
+     // Offline modes start immediately
+     (gameConfig.mode === 'VS_BOT' || gameConfig.mode === 'PASS_AND_PLAY') ||
+     // Online modes wait for active connection
+     ((gameConfig.mode === 'ONLINE_HOST' || gameConfig.mode === 'ONLINE_CLIENT') && connectionStatus === 'GAME_ACTIVE')
+  );
+
+  if (shouldRenderGame && gameConfig && userProfile) {
     return (
       <Game 
         mode={gameConfig.mode} 
@@ -245,7 +244,7 @@ export default function App() {
     );
   }
 
-  // Connection Overlay
+  // Connection Overlay (Only for Online modes)
   if (connectionStatus && connectionStatus !== 'GAME_ACTIVE') {
       return (
           <div className="fixed inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 z-[100] bg-felt">
@@ -317,7 +316,7 @@ export default function App() {
   const renderLobby = () => {
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-         {/* Wallet Status Bar */}
+         {/* Wallet Status Bar (Visually present but optional for local) */}
          <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
              <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-blue-900/30 flex items-center justify-center border border-blue-500/30">
@@ -325,7 +324,7 @@ export default function App() {
                 </div>
                 <div>
                    <h3 className="font-bold text-slate-200 text-sm">Soneium Minato Access</h3>
-                   <div className="text-xs text-slate-400">Required for Online Multiplayer</div>
+                   <div className="text-xs text-slate-400">Required to play ANY mode</div>
                 </div>
              </div>
              
@@ -361,192 +360,284 @@ export default function App() {
                <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                <div className="flex-1">
                  <div className="text-sm text-red-200">
-                    <span className="font-bold block">Connection Alert</span>
+                    <span className="font-bold block">Access Restricted</span>
                     {walletError}
                  </div>
-                 {walletError.includes("Metamask not installed") && (
-                   <a 
-                     href="https://metamask.io/download/" 
-                     target="_blank" 
-                     rel="noreferrer"
-                     className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-red-400 hover:text-white hover:underline"
-                   >
-                     Install MetaMask <ExternalLink className="w-3 h-3" />
-                   </a>
-                 )}
                </div>
-               <button onClick={() => setWalletError(null)} className="ml-auto text-red-400 hover:text-white"><Check className="w-4 h-4"/></button>
+               <button onClick={() => setWalletError(null)} className="ml-auto text-red-400 hover:text-white"><X className="w-4 h-4"/></button>
             </div>
          )}
 
          {/* Profile Card */}
          <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
-               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 border-2 border-amber-400 flex items-center justify-center text-2xl font-bold text-white shadow-lg">
-                 {userProfile?.name.charAt(0).toUpperCase()}
+               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 border-2 border-amber-400 flex items-center justify-center text-2xl font-bold text-amber-100 shadow-[0_0_20px_rgba(245,158,11,0.4)]">
+                  {userProfile?.name.charAt(0)}
                </div>
                <div>
-                 <h2 className="text-2xl font-playfair font-bold text-amber-100">{userProfile?.name}</h2>
-                 <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1 rounded-full border border-white/10 mt-1">
-                    <span className="text-xs text-slate-400 uppercase tracking-widest font-bold">Royal ID:</span>
-                    <span className="text-xs text-amber-500 font-mono font-bold tracking-wider">{userProfile?.id}</span>
-                    <button className="text-slate-500 hover:text-white" onClick={() => navigator.clipboard.writeText(userProfile?.id || '')}>
-                       <Copy className="w-3 h-3" />
-                    </button>
-                 </div>
+                  <h2 className="text-2xl font-playfair font-bold text-white">{userProfile?.name}</h2>
+                  <div className="flex items-center gap-2 text-slate-400 text-sm">
+                     <Crown className="w-4 h-4 text-amber-500" />
+                     <span>Aspiring Ruler</span>
+                  </div>
                </div>
             </div>
          </div>
 
-         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-           
-           {/* HOST GAME */}
-           <div className="bg-gradient-to-br from-amber-600/20 to-amber-900/20 p-6 rounded-3xl border border-amber-500/30 hover:border-amber-500 transition-all group relative overflow-hidden">
-               <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-amber-500/10 transition-colors"></div>
-               <div className="relative z-10">
-                  <div className="flex items-center gap-4 mb-4">
-                     <div className="w-12 h-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-400 shadow-lg border border-amber-500/20">
-                        <Crown className="w-6 h-6 fill-current" />
-                     </div>
-                     <div>
-                        <h3 className="text-xl font-bold text-white">Host Game</h3>
-                        <p className="text-slate-300 text-xs">Create a new lobby.</p>
-                     </div>
-                  </div>
-                  
-                  <button 
-                     onClick={handleHostGame}
-                     disabled={!wallet.isEligible}
-                     className="w-full bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 py-3 rounded-xl font-bold transition-all border border-amber-500/20 shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                     Create Lobby <ArrowRight className="w-4 h-4" />
-                  </button>
-                  
-                   {!wallet.isEligible && (
-                     <div className="mt-3 text-xs text-red-400 bg-red-900/20 p-2 rounded-lg border border-red-500/20 flex items-center gap-1">
-                        <Wallet className="w-3 h-3" /> Eligible wallet required
-                     </div>
-                  )}
+         {/* Game Modes Grid */}
+         <div className="grid md:grid-cols-2 gap-6">
+            
+            {/* OFFLINE MODES */}
+            <div className="space-y-4">
+               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold">
+                  <Smartphone className="w-4 h-4" /> Offline Modes
                </div>
-           </div>
-
-           {/* JOIN GAME */}
-           <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/5 hover:border-blue-500/30 transition-all group relative overflow-hidden">
-              <div className="relative z-10">
-                  <div className="flex items-center gap-4 mb-4">
-                     <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 shadow-lg border border-blue-500/20">
-                        <Wifi className="w-6 h-6" />
-                     </div>
-                     <div>
-                        <h3 className="text-xl font-bold text-white">Join Game</h3>
-                        <p className="text-slate-300 text-xs">Enter a lobby code.</p>
-                     </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                     <input 
-                        type="text" 
-                        value={lobbyId}
-                        onChange={(e) => setLobbyId(e.target.value.toUpperCase().slice(0, 6))}
-                        placeholder="CODE"
-                        className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 font-mono font-bold tracking-widest w-full text-center focus:outline-none focus:border-blue-500"
-                     />
-                     <button 
-                        onClick={handleJoinGame}
-                        disabled={!wallet.isEligible || lobbyId.length < 3}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                     >
-                        Join
-                     </button>
-                  </div>
-              </div>
-           </div>
-
-           {/* OFFLINE MODES */}
-           <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/5 hover:border-slate-500/50 transition-all group">
-              <div className="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center mb-3 text-slate-300">
-                <Users className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-bold text-white mb-1">Practice vs Bots</h3>
-              <p className="text-xs text-slate-400 mb-4">Solo training.</p>
-              <div className="flex gap-2">
-                 {[2, 3, 4].map(num => (
+               
+               {/* Practice vs Bot */}
+               <div className="relative">
+                 {offlineSetupMode === 'VS_BOT' ? (
+                   <div className="bg-slate-800/90 border border-emerald-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-emerald-400 flex items-center gap-2"><Bot size={18}/> Select Bot Count</h3>
+                        <button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[2, 3, 4].map(num => (
+                          <button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-700 hover:bg-emerald-600 py-3 rounded-xl font-bold transition-colors">
+                            {num} Players
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                 ) : (
                    <button 
-                     key={num}
-                     onClick={() => setGameConfig({ mode: 'VS_BOT', playerCount: num })}
-                     className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-2 rounded-lg text-xs font-bold transition-colors"
+                      onClick={() => {
+                          if (checkGameEligibility()) {
+                            setOfflineSetupMode('VS_BOT'); 
+                          }
+                      }}
+                      className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/5 p-6 rounded-3xl text-left transition-all hover:scale-[1.02] shadow-xl hover:shadow-2xl relative overflow-hidden"
                    >
-                     {num} P
+                      <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
+                         <Bot className="w-24 h-24 text-white" />
+                      </div>
+                      {!wallet.isEligible && (
+                         <div className="absolute top-4 right-4 bg-red-500/20 text-red-400 p-2 rounded-full z-20">
+                            <Lock size={20} />
+                         </div>
+                      )}
+                      <div className="relative z-10">
+                         <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4 group-hover:bg-emerald-500/30 transition-colors">
+                            <Bot className="w-6 h-6 text-emerald-400" />
+                         </div>
+                         <h3 className="text-xl font-bold text-white mb-2">Practice vs Bots</h3>
+                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">
+                            Hone your skills against the Palace AI. Select 2-4 players.
+                         </p>
+                      </div>
                    </button>
-                 ))}
-              </div>
-           </div>
+                 )}
+               </div>
 
-           <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/5 hover:border-slate-500/50 transition-all group">
-              <div className="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center mb-3 text-slate-300">
-                <Smartphone className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-bold text-white mb-1">Pass & Play</h3>
-              <p className="text-xs text-slate-400 mb-4">Local multiplayer.</p>
-              <div className="flex gap-2">
-                 {[2, 3, 4].map(num => (
+               {/* Pass & Play */}
+               <div className="relative">
+                 {offlineSetupMode === 'PASS_AND_PLAY' ? (
+                   <div className="bg-slate-800/90 border border-purple-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-purple-400 flex items-center gap-2"><Smartphone size={18}/> Select Player Count</h3>
+                        <button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[2, 3, 4].map(num => (
+                          <button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-700 hover:bg-purple-600 py-3 rounded-xl font-bold transition-colors">
+                            {num} Players
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                 ) : (
                    <button 
-                     key={num}
-                     onClick={() => setGameConfig({ mode: 'PASS_AND_PLAY', playerCount: num })}
-                     className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-2 rounded-lg text-xs font-bold transition-colors"
+                      onClick={() => {
+                          if (checkGameEligibility()) {
+                             setOfflineSetupMode('PASS_AND_PLAY');
+                          }
+                      }}
+                      className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 border border-white/5 p-6 rounded-3xl text-left transition-all hover:scale-[1.02] shadow-xl hover:shadow-2xl relative overflow-hidden"
                    >
-                     {num} P
+                      <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
+                         <Users className="w-24 h-24 text-white" />
+                      </div>
+                      {!wallet.isEligible && (
+                         <div className="absolute top-4 right-4 bg-red-500/20 text-red-400 p-2 rounded-full z-20">
+                            <Lock size={20} />
+                         </div>
+                      )}
+                      <div className="relative z-10">
+                         <div className="w-12 h-12 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-4 group-hover:bg-purple-500/30 transition-colors">
+                            <Smartphone className="w-6 h-6 text-purple-400" />
+                         </div>
+                         <h3 className="text-xl font-bold text-white mb-2">Pass & Play</h3>
+                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">
+                            Play with friends on a single device. Supports 2-4 players.
+                         </p>
+                      </div>
                    </button>
-                 ))}
-              </div>
-           </div>
+                 )}
+               </div>
+            </div>
 
+            {/* ONLINE MODES (COMING SOON) */}
+            <div className="space-y-4">
+               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold">
+                  <Globe className="w-4 h-4" /> Palace Rulers Online
+               </div>
+
+               {/* Quick Match (Randoms) */}
+               <div className="bg-slate-900/40 p-6 rounded-3xl border border-blue-500/20 relative overflow-hidden opacity-75 grayscale-[50%]">
+                  <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center">
+                      <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span>
+                  </div>
+                  <div className="relative z-10">
+                     <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                           <Zap className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <h3 className="text-lg font-bold text-white">Quick Match</h3>
+                     </div>
+                     <p className="text-xs text-slate-400">Match with random opponents. Ranked play with rewards.</p>
+                  </div>
+               </div>
+
+               {/* Online Multiplayer (Friends) */}
+               <div className="bg-slate-900/40 p-6 rounded-3xl border border-white/10 relative overflow-hidden opacity-75 grayscale-[50%]">
+                   <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center">
+                      <span className="bg-slate-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span>
+                   </div>
+                   <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                         <Wifi className="w-5 h-5 text-slate-400" />
+                      </div>
+                      <h3 className="text-lg font-bold text-white">Friend Lobby</h3>
+                   </div>
+                   <div className="grid grid-cols-2 gap-3 opacity-50">
+                      <button className="bg-slate-700 p-3 rounded-xl text-sm font-bold">Host</button>
+                      <button className="bg-slate-700 p-3 rounded-xl text-sm font-bold">Join</button>
+                   </div>
+               </div>
+
+               {/* Tournament */}
+               <div className="bg-slate-900/40 p-6 rounded-3xl border border-amber-500/20 relative overflow-hidden opacity-75 grayscale-[50%]">
+                  <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center">
+                      <span className="bg-amber-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                     <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                        <Trophy className="w-5 h-5 text-amber-400" />
+                     </div>
+                     <h3 className="text-lg font-bold text-white">Tournament</h3>
+                  </div>
+               </div>
+
+            </div>
+         </div>
+
+         {/* Weekly Rewards Explanation */}
+         <div className="mt-8 bg-slate-900/60 p-6 rounded-3xl border border-white/5 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-4 opacity-50">
+                <Trophy className="w-24 h-24 text-slate-800 rotate-12" />
+             </div>
+             <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-4">
+                   <span className="bg-amber-500/20 text-amber-400 px-2 py-1 rounded text-[10px] font-bold tracking-widest uppercase">Weekly Rewards</span>
+                   <span className="text-xs text-slate-500 font-bold bg-slate-800 px-2 py-1 rounded-full">Coming Soon</span>
+                </div>
+                
+                <h3 className="text-xl font-bold text-white mb-2">The Soneium Pool</h3>
+                <p className="text-slate-400 text-sm mb-4 max-w-2xl">
+                   Compete for real rewards on the Soneium Minato chain. 
+                </p>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                   <div className="bg-slate-950/50 p-4 rounded-xl border border-white/5">
+                      <div className="text-emerald-400 font-bold text-sm mb-1 flex items-center gap-2">
+                         <Wallet className="w-4 h-4"/> Deposit
+                      </div>
+                      <p className="text-xs text-slate-400">
+                         Players deposit <strong>$0.25 worth of ETH</strong> into the weekly smart contract pool to verify eligibility.
+                      </p>
+                   </div>
+                   <div className="bg-slate-950/50 p-4 rounded-xl border border-white/5">
+                      <div className="text-amber-400 font-bold text-sm mb-1 flex items-center gap-2">
+                         <Crown className="w-4 h-4"/> Win
+                      </div>
+                      <p className="text-xs text-slate-400">
+                         The top 5 players with the most <strong>Quick Match</strong> wins at the end of the week split the pool!
+                      </p>
+                   </div>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-4 italic">
+                   Note: Friendly multiplayer matches do not count towards the leaderboard. Only ranked Quick Matches qualify.
+                </p>
+             </div>
          </div>
       </div>
     );
   };
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'lobby': return renderLobby();
-      case 'rules': return <RulesSheet />;
-      case 'arbiter': return <Arbiter />;
-      default: return renderLobby();
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-felt text-slate-200 safe-area-bottom flex flex-col">
-       <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full">
-         {renderContent()}
-       </div>
-
-       {/* Bottom Navigation */}
-       <div className="sticky bottom-0 bg-slate-950/80 backdrop-blur-xl border-t border-white/5 px-6 py-4 z-50">
-          <div className="max-w-md mx-auto flex justify-between items-center bg-slate-900 rounded-full p-1 border border-white/10 shadow-2xl">
-             <button 
-               onClick={() => setActiveTab('lobby')}
-               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'lobby' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-             >
-                <Users className="w-5 h-5 mb-0.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Lobby</span>
-             </button>
-             <button 
-               onClick={() => setActiveTab('rules')}
-               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'rules' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-             >
-                <BookOpen className="w-5 h-5 mb-0.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Rules</span>
-             </button>
-             <button 
-               onClick={() => setActiveTab('arbiter')}
-               className={`flex-1 flex flex-col items-center py-2 px-4 rounded-full transition-all ${activeTab === 'arbiter' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-             >
-                <Bot className="w-5 h-5 mb-0.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Arbiter</span>
-             </button>
+    <div className="min-h-screen bg-felt text-slate-200 selection:bg-amber-500/30 font-sans pb-safe-area-bottom">
+      {/* Main Content Area */}
+      <main className="max-w-7xl mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)]">
+        {activeTab === 'lobby' && renderLobby()}
+        {activeTab === 'rules' && <RulesSheet />}
+        {activeTab === 'arbiter' && (
+          <div className="max-w-2xl mx-auto pt-8">
+             <Arbiter />
           </div>
-       </div>
+        )}
+      </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-lg border-t border-white/5 px-6 py-4 z-50 md:hidden">
+        <div className="flex justify-around items-center max-w-md mx-auto">
+          <button 
+            onClick={() => setActiveTab('lobby')}
+            className={`flex flex-col items-center gap-1 ${activeTab === 'lobby' ? 'text-amber-500' : 'text-slate-500'}`}
+          >
+            <Layers size={20} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Lobby</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('rules')}
+            className={`flex flex-col items-center gap-1 ${activeTab === 'rules' ? 'text-amber-500' : 'text-slate-500'}`}
+          >
+            <BookOpen size={20} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Rules</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('arbiter')}
+            className={`flex flex-col items-center gap-1 ${activeTab === 'arbiter' ? 'text-amber-500' : 'text-slate-500'}`}
+          >
+            <HelpCircle size={20} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Arbiter</span>
+          </button>
+        </div>
+      </nav>
+
+      {/* Desktop Navigation Header */}
+      <header className="hidden md:flex items-center justify-between px-8 py-6 max-w-7xl mx-auto">
+         <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg rotate-3">
+               <Crown className="text-slate-900 w-6 h-6" />
+            </div>
+            <h1 className="text-2xl font-playfair font-bold text-white tracking-tight">Palace Rulers</h1>
+         </div>
+         <div className="flex gap-8">
+            <button onClick={() => setActiveTab('lobby')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'lobby' ? 'text-amber-500' : 'text-slate-400'}`}>Lobby</button>
+            <button onClick={() => setActiveTab('rules')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'rules' ? 'text-amber-500' : 'text-slate-400'}`}>Rules</button>
+            <button onClick={() => setActiveTab('arbiter')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'arbiter' ? 'text-amber-500' : 'text-slate-400'}`}>Arbiter</button>
+         </div>
+      </header>
     </div>
   );
 }
