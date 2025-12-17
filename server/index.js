@@ -1,6 +1,8 @@
 
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
 const http = require('http');
-const { Server } = require('socket.io');
 
 // --- Game Constants & Helpers ---
 const Suit = { Spades: '♠', Hearts: '♥', Diamonds: '♦', Clubs: '♣' };
@@ -54,79 +56,37 @@ function createDeck() {
   return shuffle(deck);
 }
 
-// --- Server Setup ---
-const server = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200);
-    res.end('OK');
-    return;
-  }
-  res.writeHead(200);
-  res.end('Palace Rulers Multiplayer Server (Polling + WebSocket Enabled)');
-});
-
-// CRITICAL: Allow Polling + WebSocket
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Allow Farcaster frames / any origin
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-  transports: ['polling', 'websocket'], // MUST include polling for Farcaster
-  allowEIO3: true // Improved compatibility
-});
+// --- App Setup ---
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
 
 // --- Room State Management ---
-const rooms = new Map(); // roomId -> GameState
+// Map<roomId, GameState>
+const rooms = new Map();
 
-function createInitialState(players) {
+function broadcastState(roomId) {
+  // In HTTP polling, we don't push. We just update the timestamp.
+  const room = rooms.get(roomId);
+  if (room) {
+      room.lastUpdateTimestamp = Date.now();
+  }
+}
+
+function createInitialState() {
   return {
-    players: players, // [{id, name, hand, faceUp, hidden, socketId, hasSelectedSetup}]
-    deck: createDeck(),
+    players: [], // [{id, name, token, hand, faceUp, hidden, hasSelectedSetup}]
+    deck: [],
     pile: [],
     pileRotations: [],
     turnIndex: 0,
-    phase: 'SETUP',
+    phase: 'LOBBY',
     activeConstraint: 'NONE',
     mustPlayAgain: false,
     winner: null,
-    logs: ["Game Started. Players must fortify their positions."]
+    logs: [],
+    lastUpdateTimestamp: Date.now()
   };
-}
-
-function broadcastState(roomId) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-
-  room.players.forEach(player => {
-    // Sanitize state for each player to prevent cheating
-    const sanitizedPlayers = room.players.map(p => {
-      if (p.socketId === player.socketId) return p; // Return full data for self
-      // Hide opponents' cards
-      return {
-        ...p,
-        hand: p.hand.map(() => ({ id: 'hidden', suit: '', rank: '', value: 0 })), // Masked
-        hiddenCards: p.hiddenCards.map(() => ({ id: 'hidden', suit: '', rank: '', value: 0 })), // Masked
-        // FaceUp cards are visible
-      };
-    });
-
-    const snapshot = {
-      players: sanitizedPlayers,
-      deckCount: room.deck.length,
-      pile: room.pile,
-      pileRotations: room.pileRotations,
-      turnIndex: room.turnIndex,
-      phase: room.phase,
-      activeConstraint: room.activeConstraint,
-      mustPlayAgain: room.mustPlayAgain,
-      winner: room.winner,
-      logs: room.logs,
-      lastUpdateTimestamp: Date.now()
-    };
-
-    io.to(player.socketId).emit('GAME_STATE', snapshot);
-  });
 }
 
 // --- Game Logic Methods ---
@@ -159,276 +119,240 @@ function checkHandState(player, room) {
        room.logs.push(`${player.name} picks up their Stronghold!`);
        player.hand.push(...player.faceUpCards);
        player.faceUpCards = [];
-       // Sort hand for convenience (optional, difficult on server without re-sorting everything)
     }
 }
 
-// --- Socket Handlers ---
+// --- API Endpoints ---
 
-io.on('connection', (socket) => {
-  console.log('✅ Connected:', socket.id, 'via', socket.conn.transport.name);
+app.get('/health', (req, res) => res.send('Palace Rulers HTTP Server OK'));
 
-  // Monitor transport upgrades
-  socket.conn.on("upgrade", (transport) => {
-    console.log("⬆️ Upgraded transport to", transport.name);
-  });
-
-  socket.on('JOIN_ROOM', ({ roomId, playerName }) => {
-    const sanitizedRoomId = roomId.toUpperCase();
-    let room = rooms.get(sanitizedRoomId);
-
-    // Create room if it doesn't exist (First player is effectively host/creator)
+// JOIN / CREATE GAME
+app.post('/api/join', (req, res) => {
+    const { roomId, playerName } = req.body;
+    const sanitizedId = roomId ? roomId.toUpperCase() : 'DEFAULT';
+    
+    let room = rooms.get(sanitizedId);
     if (!room) {
-      room = {
-        players: [],
-        deck: [],
-        pile: [],
-        pileRotations: [],
-        turnIndex: 0,
-        phase: 'LOBBY',
-        activeConstraint: 'NONE',
-        mustPlayAgain: false,
-        winner: null,
-        logs: []
-      };
-      rooms.set(sanitizedRoomId, room);
+        room = createInitialState();
+        rooms.set(sanitizedId, room);
     }
 
-    // Check capacity
+    // Check if player exists (Reconnect)
+    const existingPlayer = room.players.find(p => p.name === playerName);
+    if (existingPlayer) {
+        return res.json({ 
+            success: true, 
+            roomId: sanitizedId, 
+            playerToken: existingPlayer.token, 
+            playerId: existingPlayer.id 
+        });
+    }
+
     if (room.players.length >= 2) {
-      // Check if reconnecting
-      const existingPlayer = room.players.find(p => p.name === playerName);
-      if (existingPlayer) {
-          existingPlayer.socketId = socket.id; // Reconnect
-          socket.join(sanitizedRoomId);
-          broadcastState(sanitizedRoomId);
-          return;
-      }
-      socket.emit('ERROR', 'Room is full');
-      return;
+        return res.status(403).json({ success: false, message: 'Room is full' });
     }
 
-    // Add player
-    const playerId = room.players.length; // 0 or 1
+    // Add new player
+    const playerId = room.players.length;
+    const playerToken = Math.random().toString(36).substring(2);
+    
     const newPlayer = {
       id: playerId,
       name: playerName || `Player ${playerId + 1}`,
-      socketId: socket.id,
+      token: playerToken,
       hand: [],
       faceUpCards: [],
       hiddenCards: [],
-      hasSelectedSetup: false,
-      isHuman: true
+      hasSelectedSetup: false
     };
     room.players.push(newPlayer);
-    socket.join(sanitizedRoomId);
-    socket.data.roomId = sanitizedRoomId;
-    socket.data.playerId = playerId;
 
-    // Auto-Start when 2 players
+    // Auto-Start Logic
     if (room.players.length === 2) {
-      const deck = createDeck();
-      room.players.forEach(p => {
-        p.hiddenCards = deck.splice(0, 3);
-        p.hand = deck.splice(0, 7);
-      });
-      room.deck = deck;
-      room.phase = 'SETUP';
-      room.logs = ["Both players connected. Setup your Strongholds!"];
+        room.deck = createDeck();
+        room.players.forEach(p => {
+            p.hiddenCards = room.deck.splice(0, 3);
+            p.hand = room.deck.splice(0, 7);
+        });
+        room.phase = 'SETUP';
+        room.logs.push("Both players connected. Setup your Strongholds!");
     } else {
-        room.logs = [`${newPlayer.name} joined. Waiting for opponent...`];
+        room.logs.push(`${newPlayer.name} joined. Waiting for opponent...`);
     }
 
-    broadcastState(sanitizedRoomId);
-  });
+    broadcastState(sanitizedId);
 
-  socket.on('ACTION_SETUP_CONFIRM', ({ faceUpCards, hand }) => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room || room.phase !== 'SETUP') return;
-
-    const player = room.players.find(p => p.socketId === socket.id);
-    if (!player) return;
-
-    // Basic validation
-    if (faceUpCards.length !== 3) return;
-
-    player.faceUpCards = faceUpCards;
-    player.hand = hand;
-    player.hasSelectedSetup = true;
-
-    // Check if both ready
-    if (room.players.every(p => p.hasSelectedSetup)) {
-      room.phase = 'PLAYING';
-      room.logs.push("All Rulers Ready. The Battle Begins!");
-      room.turnIndex = 0;
-    }
-
-    broadcastState(roomId);
-  });
-
-  socket.on('ACTION_PICK_UP', () => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room || room.phase !== 'PLAYING') return;
-
-    const player = room.players[room.turnIndex];
-    if (player.socketId !== socket.id) return; // Not your turn
-
-    if (room.pile.length > 0) {
-        room.logs.push(`${player.name} picks up the pile (${room.pile.length} cards).`);
-        player.hand.push(...room.pile);
-    } else {
-        room.logs.push(`${player.name} passes.`);
-    }
-
-    room.pile = [];
-    room.pileRotations = [];
-    room.activeConstraint = 'NONE';
-    advanceTurn(room);
-    broadcastState(roomId);
-  });
-
-  socket.on('ACTION_PLAY_CARD', ({ cards, source }) => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room || room.phase !== 'PLAYING') return;
-
-    const player = room.players[room.turnIndex];
-    if (player.socketId !== socket.id) return; // Not your turn
-
-    const cardProto = cards[0];
-    
-    // --- Validation Logic (Mirrors Client) ---
-    const topCard = room.pile.length > 0 ? room.pile[room.pile.length - 1] : null;
-    let isValid = false;
-    const isTwo = cardProto.rank === Rank.Two;
-    const isSeven = cardProto.rank === Rank.Seven;
-    const isTen = cardProto.rank === Rank.Ten;
-
-    // Source validation logic implies trusted client for simplicity in mini-app,
-    // but we should verify card ownership.
-    let sourceArray = [];
-    if (source === 'HAND') sourceArray = player.hand;
-    else if (source === 'FACEUP') sourceArray = player.faceUpCards;
-    else if (source === 'HIDDEN') sourceArray = player.hiddenCards;
-
-    // Ensure player actually has these cards
-    const hasCards = cards.every(c => sourceArray.some(sc => sc.id === c.id));
-    if (!hasCards) {
-        // Potential cheat or desync
-        return;
-    }
-    
-    // Rule Validation
-    if (source === 'FACEUP' && player.hand.length > 0) return; // Must empty hand first
-    if (source === 'HIDDEN' && (player.hand.length > 0 || player.faceUpCards.length > 0)) return;
-
-    if (isTwo || isTen || isSeven) {
-        isValid = true;
-    } else {
-        if (!topCard) isValid = true;
-        else {
-            if (room.activeConstraint === 'LOWER_THAN_7') {
-                if (cardProto.value < 7) isValid = true;
-            } else {
-                if (cardProto.value >= topCard.value) isValid = true;
-            }
-        }
-    }
-
-    // --- Failure Handling (Pickup) ---
-    if (!isValid) {
-        if (source === 'HIDDEN') {
-            room.logs.push(`${player.name} flips ${cardProto.rank}${cardProto.suit} - FAILED! Picks up pile.`);
-            // Move played card to hand
-            player.hiddenCards = player.hiddenCards.filter(c => c.id !== cardProto.id);
-            player.hand.push(cardProto);
-            // Pickup pile
-            player.hand.push(...room.pile);
-            room.pile = [];
-            room.pileRotations = [];
-            room.activeConstraint = 'NONE';
-            advanceTurn(room);
-            broadcastState(roomId);
-            return;
-        } else {
-            // Invalid move for visible cards - ignore
-            return;
-        }
-    }
-
-    // --- Execute Move ---
-    // Remove cards from source
-    const cardIds = cards.map(c => c.id);
-    if (source === 'HAND') player.hand = player.hand.filter(c => !cardIds.includes(c.id));
-    else if (source === 'FACEUP') player.faceUpCards = player.faceUpCards.filter(c => !cardIds.includes(c.id));
-    else if (source === 'HIDDEN') player.hiddenCards = player.hiddenCards.filter(c => !cardIds.includes(c.id));
-
-    // Add to pile
-    cards.forEach(() => {
-        room.pileRotations.push(Math.random() * 30 - 15);
+    res.json({ 
+        success: true, 
+        roomId: sanitizedId, 
+        playerToken, 
+        playerId 
     });
+});
+
+// GET GAME STATE (Polling Endpoint)
+app.get('/api/state/:roomId', (req, res) => {
+    const { roomId } = req.params;
+    const { playerToken } = req.query; // Auth to see own cards
     
-    // Process Effects
-    if (isTen) {
-        room.logs.push(`${player.name} burns the pile with ${cards.length > 1 ? cards.length + 'x ' : ''}10! 🔥`);
+    const room = rooms.get(roomId);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    // Sanitize State
+    const sanitizedPlayers = room.players.map(p => {
+        if (p.token === playerToken) return p; // Return full data for self
+        return {
+            ...p,
+            token: undefined, // Hide token
+            hand: p.hand.map(() => ({ id: 'hidden', suit: '', rank: '', value: 0 })), 
+            hiddenCards: p.hiddenCards.map(() => ({ id: 'hidden', suit: '', rank: '', value: 0 })),
+        };
+    });
+
+    const snapshot = {
+        players: sanitizedPlayers,
+        deckCount: room.deck.length,
+        pile: room.pile,
+        pileRotations: room.pileRotations,
+        turnIndex: room.turnIndex,
+        phase: room.phase,
+        activeConstraint: room.activeConstraint,
+        mustPlayAgain: room.mustPlayAgain,
+        winner: room.winner,
+        logs: room.logs,
+        lastUpdateTimestamp: room.lastUpdateTimestamp
+    };
+
+    res.json(snapshot);
+});
+
+// GAME ACTIONS
+app.post('/api/action', (req, res) => {
+    const { roomId, playerToken, action, payload } = req.body;
+    
+    const room = rooms.get(roomId);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    const player = room.players.find(p => p.token === playerToken);
+    if (!player) return res.status(403).json({ message: 'Invalid token' });
+
+    // --- Action Handlers ---
+
+    if (action === 'SETUP_CONFIRM') {
+        if (room.phase !== 'SETUP') return res.status(400).json({message: 'Invalid phase'});
+        player.faceUpCards = payload.faceUpCards;
+        player.hand = payload.hand;
+        player.hasSelectedSetup = true;
+
+        if (room.players.every(p => p.hasSelectedSetup)) {
+            room.phase = 'PLAYING';
+            room.logs.push("All Rulers Ready. The Battle Begins!");
+            room.turnIndex = 0;
+        }
+    } 
+    else if (action === 'PICK_UP') {
+        if (room.phase !== 'PLAYING' || room.players[room.turnIndex].id !== player.id) return res.status(400).send();
+        
+        if (room.pile.length > 0) {
+            room.logs.push(`${player.name} picks up the pile (${room.pile.length} cards).`);
+            player.hand.push(...room.pile);
+        } else {
+            room.logs.push(`${player.name} passes.`);
+        }
         room.pile = [];
         room.pileRotations = [];
         room.activeConstraint = 'NONE';
-        drawCards(player, room.deck);
-        checkHandState(player, room);
-        if (checkWinCondition(player, room)) { broadcastState(roomId); return; }
         advanceTurn(room);
-    } else if (isTwo) {
-        room.logs.push(`${player.name} resets with ${cards.length > 1 ? cards.length + 'x ' : ''}2! 🔄`);
-        room.pile.push(...cards); // 2 sits on top but resets value technically
-        room.activeConstraint = 'NONE';
-        drawCards(player, room.deck);
-        checkHandState(player, room);
-        if (checkWinCondition(player, room)) { broadcastState(roomId); return; }
-        room.mustPlayAgain = true;
-        room.logs.push(`${player.name} plays again!`);
-    } else {
-        room.logs.push(`${player.name} plays ${cards.length > 1 ? cards.length + 'x ' : ''}${cardProto.rank}.`);
-        room.pile.push(...cards);
+    }
+    else if (action === 'PLAY_CARD') {
+        if (room.phase !== 'PLAYING' || room.players[room.turnIndex].id !== player.id) return res.status(400).send();
         
-        if (room.activeConstraint === 'LOWER_THAN_7' && !isSeven) room.activeConstraint = 'NONE';
-        if (isSeven) {
-            room.logs.push("📉 Next must be LOWER than 7!");
-            room.activeConstraint = 'LOWER_THAN_7';
+        const { cards, source } = payload;
+        const cardProto = cards[0];
+        
+        // --- Validation Logic ---
+        const topCard = room.pile.length > 0 ? room.pile[room.pile.length - 1] : null;
+        let isValid = false;
+        const isTwo = cardProto.rank === Rank.Two;
+        const isSeven = cardProto.rank === Rank.Seven;
+        const isTen = cardProto.rank === Rank.Ten;
+
+        if (isTwo || isTen || isSeven) {
+            isValid = true;
+        } else {
+            if (!topCard) isValid = true;
+            else {
+                if (room.activeConstraint === 'LOWER_THAN_7') {
+                    if (cardProto.value < 7) isValid = true;
+                } else {
+                    if (cardProto.value >= topCard.value) isValid = true;
+                }
+            }
         }
 
-        drawCards(player, room.deck);
-        checkHandState(player, room);
-        if (checkWinCondition(player, room)) { broadcastState(roomId); return; }
-        advanceTurn(room);
+        if (!isValid) {
+            if (source === 'HIDDEN') {
+                room.logs.push(`${player.name} flips ${cardProto.rank}${cardProto.suit} - FAILED! Picks up pile.`);
+                player.hiddenCards = player.hiddenCards.filter(c => c.id !== cardProto.id);
+                player.hand.push(cardProto);
+                player.hand.push(...room.pile);
+                room.pile = [];
+                room.pileRotations = [];
+                room.activeConstraint = 'NONE';
+                advanceTurn(room);
+                broadcastState(roomId);
+                return res.json({ success: true });
+            } else {
+                return res.status(400).json({ message: 'Invalid Move' });
+            }
+        }
+
+        // Execute Move
+        const cardIds = cards.map(c => c.id);
+        if (source === 'HAND') player.hand = player.hand.filter(c => !cardIds.includes(c.id));
+        else if (source === 'FACEUP') player.faceUpCards = player.faceUpCards.filter(c => !cardIds.includes(c.id));
+        else if (source === 'HIDDEN') player.hiddenCards = player.hiddenCards.filter(c => !cardIds.includes(c.id));
+
+        cards.forEach(() => room.pileRotations.push(Math.random() * 30 - 15));
+
+        if (isTen) {
+            room.logs.push(`${player.name} burns the pile with ${cards.length > 1 ? cards.length + 'x ' : ''}10! 🔥`);
+            room.pile = [];
+            room.pileRotations = [];
+            room.activeConstraint = 'NONE';
+            drawCards(player, room.deck);
+            checkHandState(player, room);
+            if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
+            advanceTurn(room);
+        } else if (isTwo) {
+            room.logs.push(`${player.name} resets with ${cards.length > 1 ? cards.length + 'x ' : ''}2! 🔄`);
+            room.pile.push(...cards);
+            room.activeConstraint = 'NONE';
+            drawCards(player, room.deck);
+            checkHandState(player, room);
+            if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
+            room.mustPlayAgain = true;
+            room.logs.push(`${player.name} plays again!`);
+        } else {
+            room.logs.push(`${player.name} plays ${cards.length > 1 ? cards.length + 'x ' : ''}${cardProto.rank}.`);
+            room.pile.push(...cards);
+            if (room.activeConstraint === 'LOWER_THAN_7' && !isSeven) room.activeConstraint = 'NONE';
+            if (isSeven) {
+                room.logs.push("📉 Next must be LOWER than 7!");
+                room.activeConstraint = 'LOWER_THAN_7';
+            }
+            drawCards(player, room.deck);
+            checkHandState(player, room);
+            if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
+            advanceTurn(room);
+        }
     }
 
     broadcastState(roomId);
-  });
-
-  socket.on('disconnect', () => {
-    const roomId = socket.data.roomId;
-    if (roomId) {
-      const room = rooms.get(roomId);
-      if (room) {
-        room.logs.push(`Player disconnected.`);
-        // Note: We don't delete the room immediately to allow reconnects
-        // But for simplicity in this version, if empty, delete
-        const remaining = room.players.filter(p => p.socketId !== socket.id);
-        if (remaining.length === 0) {
-            rooms.delete(roomId);
-        } else {
-             // Notify other player
-             broadcastState(roomId);
-        }
-      }
-    }
-  });
+    res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-  console.log(`🚀 Palace Server running on port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Palace HTTP REST Server running on port ${PORT}`);
 });

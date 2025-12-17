@@ -73,7 +73,7 @@ export interface Player {
   peerId?: string; // For P2P mapping
 }
 
-export type GamePhase = 'SETUP' | 'PLAYING' | 'GAME_OVER';
+export type GamePhase = 'LOBBY' | 'SETUP' | 'PLAYING' | 'GAME_OVER';
 
 // --- P2P Networking Types ---
 
