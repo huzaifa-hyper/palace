@@ -1,4 +1,9 @@
 {
+  "accountAssociation": {
+    "header": "eyJmaWQiOjE1NjgzNDksInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHgyMTY3MTlkYjE3ZGYyRjU1ZDNCRDVlOUNhMjI0RDk4M0IwQjhCMjQyIn0",
+    "payload": "eyJkb21haW4iOiJwYWxhY2UtcnVsZXJzLTc5ZXYudmVyY2VsLmFwcCJ9",
+    "signature": "KUekynqViMyb9Cxnq6yAlKRdg6mRqCvkWWWg9HLe/VVE4Cwa2tZEKq/C8rBQM2HV0c8ZaBvhENQ42pZAHfp25hs="
+  },
   "frame": {
     "version": "1",
     "name": "Palace Rulers",
@@ -8,10 +13,5 @@
     "buttonTitle": "Play Now",
     "splashImageUrl": "https://palace-rulers-79ev.vercel.app/splash.png",
     "splashBackgroundColor": "#0B1220"
-  },
-  "accountAssociation": {
-    "header": "eyJmaWQiOjE1NjgzNDksInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHgyMTY3MTlkYjE3ZGYyRjU1ZDNCRDVlOUNhMjI0RDk4M0IwQjhCMjQyIn0",
-    "payload": "eyJkb21haW4iOiJwYWxhY2UtcnVsZXJzLTc5ZXYudmVyY2VsLmFwcCJ9",
-    "signature": "KUekynqViMyb9Cxnq6yAlKRdg6mRqCvkWWWg9HLe/VVE4Cwa2tZEKq/C8rBQM2HV0c8ZaBvhENQ42pZAHfp25hs="
   }
 }
