@@ -30,12 +30,15 @@ const getProviderSource = () => {
   if (typeof window === 'undefined') return null;
   
   try {
-    // Farcaster SDK path
+    // 1. Check Farcaster Frame environment
     const frameProvider = (sdk as any)?.wallet?.ethProvider;
     if (frameProvider) return frameProvider;
 
-    // Standard Metamask/In-app browser path
+    // 2. Check injected window.ethereum (MetaMask, etc.)
     if (window.ethereum) return window.ethereum;
+    
+    // 3. Last ditch: check for any provider on window
+    if ((window as any).ethereum) return (window as any).ethereum;
   } catch (e) {
     console.warn("Error detecting provider source:", e);
   }
@@ -46,15 +49,14 @@ const getProviderSource = () => {
 export const web3Service = {
   /**
    * Fetches STNET price (using ETH as a proxy).
-   * Defensive against malformed API responses.
    */
   getEthPrice: async (): Promise<number> => {
     try {
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
       if (!response.ok) return 2500;
       const data = await response.json();
-      // Added optional chaining to prevent "cannot read property 'usd' of undefined"
-      return data?.ethereum?.usd || 2500; 
+      if (!data || !data.ethereum) return 2500;
+      return data.ethereum.usd || 2500; 
     } catch (e) {
       console.warn("Failed to fetch price, using fallback ($2500).");
       return 2500; 
@@ -62,11 +64,13 @@ export const web3Service = {
   },
 
   /**
-   * Switches the user's wallet to Somnia Testnet or adds it if missing.
+   * Switches the user's wallet to Somnia Testnet.
+   * Uses extremely defensive error parsing.
    */
-  switchNetwork: async () => {
-    const ethereum = getProviderSource();
-    if (!ethereum) throw new Error('No ethereum provider found');
+  switchNetwork: async (ethereum: any) => {
+    if (!ethereum || typeof ethereum.request !== 'function') {
+      throw new Error('Valid wallet provider not found');
+    }
 
     try {
       await ethereum.request({
@@ -74,11 +78,11 @@ export const web3Service = {
         params: [{ chainId: SOMNIA_CHAIN_ID_HEX }],
       });
     } catch (switchError: any) {
-      // Robustly check for error code or message even if switchError is not a standard object
-      const errorCode = switchError?.code;
-      const errorMsg = switchError?.message?.toLowerCase() || '';
+      // Extremely defensive check for error codes
+      const errorCode = switchError ? (switchError.code || (switchError.data && switchError.data.code)) : null;
+      const errorMsg = switchError && switchError.message ? switchError.message.toLowerCase() : '';
       
-      // Error code 4902 means the chain has not been added to the wallet
+      // Error code 4902 or 'unrecognized' indicates chain needs adding
       if (errorCode === 4902 || errorMsg.includes('unrecognized') || errorMsg.includes('not found')) {
         try {
           await ethereum.request({
@@ -98,52 +102,52 @@ export const web3Service = {
             ],
           });
         } catch (addError: any) {
-          throw new Error(addError?.message || 'Failed to add Somnia Testnet to your wallet.');
+          const addMsg = addError && addError.message ? addError.message : 'Failed to add Somnia Testnet.';
+          throw new Error(addMsg);
         }
+      } else if (errorCode === 4001) {
+        throw new Error('Network switch was rejected.');
       } else {
-        throw new Error(switchError?.message || 'Please switch your wallet to the Somnia Testnet.');
+        const finalMsg = switchError && switchError.message ? switchError.message : 'Failed to switch to Somnia Testnet.';
+        throw new Error(finalMsg);
       }
     }
   },
 
   /**
    * Main connection logic.
-   * Handles account requests, network switching, and balance checking.
    */
   connectWallet: async (): Promise<Web3Response> => {
     const ethereum = getProviderSource();
+    
     if (!ethereum) {
-      return { success: false, message: "Wallet provider not detected. Please open in a Web3 browser or Farcaster client." };
+      return { success: false, message: "No Web3 wallet detected. Please open in a crypto browser or Farcaster." };
     }
     
-    // Check if ethers library loaded correctly from index.html script tag
     const ethers = window.ethers;
     if (!ethers) {
-        return { success: false, message: "The blockchain library (Ethers) failed to load. Please refresh the page." };
+        return { success: false, message: "Blockchain library (Ethers) failed to load. Please refresh." };
     }
 
     try {
-      // 1. Request accounts using the low-level provider
+      // 1. Request accounts
       const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-      if (!accounts || accounts.length === 0) {
-        return { success: false, message: "No wallet accounts found." };
+      if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
+        return { success: false, message: "No wallet accounts were returned." };
       }
 
-      // 2. Ensure we are on the correct network
-      await web3Service.switchNetwork();
+      // 2. Network verification
+      await web3Service.switchNetwork(ethereum);
       
-      // 3. Initialize Ethers provider
-      // Re-request source to ensure we have current state
-      const currentEthereum = getProviderSource();
-      const provider = new ethers.BrowserProvider(currentEthereum);
+      // 3. Finalize connection with Ethers
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       
-      // 4. Fetch Balance
+      // 4. State checks
       const balanceBigInt = await provider.getBalance(address);
       const balanceEth = ethers.formatEther(balanceBigInt);
       
-      // 5. Calculate eligibility based on $0.25 requirement
       const ethPrice = await web3Service.getEthPrice();
       const balanceUsd = Math.max(0, parseFloat(balanceEth) * ethPrice) || 0;
       const isEligible = balanceUsd >= MIN_USD_REQUIREMENT;
@@ -157,19 +161,22 @@ export const web3Service = {
       };
 
     } catch (error: any) {
-      console.error("Wallet connection error details:", error);
+      console.error("ConnectWallet Error:", error);
       
-      // Defensive property access for errors
-      const errorCode = error?.code;
-      const errorMessage = error?.message || "Failed to connect wallet.";
-      
-      if (errorCode === 4001) {
-        return { success: false, message: "Connection request was rejected in your wallet." };
+      // Check for common rejection codes
+      if (error && (error.code === 4001 || (error.message && error.message.includes('rejected')))) {
+        return { success: false, message: "Request was rejected in your wallet." };
       }
       
+      // Safely extract message
+      let message = "An unknown connection error occurred.";
+      if (typeof error === 'string') message = error;
+      else if (error && error.message) message = error.message;
+      else if (error && typeof error === 'object') message = JSON.stringify(error);
+
       return { 
         success: false, 
-        message: errorMessage, 
+        message: message, 
         isEligible: false 
       };
     }

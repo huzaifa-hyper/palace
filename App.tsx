@@ -68,7 +68,7 @@ export default function App() {
     // Safely detect ethereum provider for event listeners
     const ethereum = (sdk as any)?.wallet?.ethProvider || window?.ethereum;
     
-    if (ethereum) {
+    if (ethereum && typeof ethereum.on === 'function') {
       const handleAccountsChanged = (accounts: string[]) => {
         if (accounts && accounts.length > 0) {
           handleConnectWallet();
@@ -133,13 +133,19 @@ export default function App() {
           chainId: SOMNIA_CHAIN_ID
         });
       } else {
-        const errorMsg = result?.message || "Failed to connect wallet.";
-        setWalletError(errorMsg);
+        const errorMsg = result && result.message ? result.message : "Failed to connect wallet.";
+        setWalletError(String(errorMsg));
         setWallet(prev => ({ ...prev, isConnected: false }));
       }
     } catch (e: any) {
-      console.error("Unhandled wallet connection error:", e);
-      setWalletError(e?.message || "An unexpected error occurred during connection.");
+      console.error("UI: Unhandled wallet connection error:", e);
+      // Ensure we always have a string message
+      let msg = "An unexpected error occurred.";
+      if (e && e.message) msg = e.message;
+      else if (typeof e === 'string') msg = e;
+      else msg = JSON.stringify(e);
+      
+      setWalletError(msg);
     }
   };
 
@@ -182,7 +188,7 @@ export default function App() {
     try {
         await p2pService.connect(SIGNALING_URL, action, code, userProfile?.name || 'Unknown');
     } catch (e: any) {
-        setWalletError(e?.message || "Failed to initiate connection. Is the signaling server running?");
+        setWalletError(e && e.message ? e.message : "Failed to initiate connection.");
         setConnectionStatus(null);
     }
   };
