@@ -1,28 +1,24 @@
+
 import { GoogleGenAI, Chat } from "@google/genai";
 import { GEMINI_SYSTEM_INSTRUCTION } from '../constants';
 
 let chatSession: Chat | null = null;
 
-// Safe access to environment variable
-const getApiKey = (): string | undefined => {
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
-  }
-  return undefined;
-};
-
+// Fix: Simplified API Key initialization to strictly use process.env.API_KEY
 export const initializeChatSession = (apiKey: string) => {
-  if (!apiKey) return;
+  const finalKey = apiKey || process.env.API_KEY;
+  if (!finalKey) return;
   
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // Fix: Initialize GoogleGenAI with named parameter apiKey
+    const ai = new GoogleGenAI({ apiKey: finalKey });
     
-    // Using gemini-2.5-flash for fast, responsive answers
+    // Fix: Changed model to 'gemini-3-flash-preview' for rule arbitration tasks
     chatSession = ai.chats.create({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       config: {
         systemInstruction: GEMINI_SYSTEM_INSTRUCTION,
-        temperature: 0.3, // Keep it consistent and rule-abiding
+        temperature: 0.3, // Consistent reasoning for game rules
       },
     });
   } catch (error) {
@@ -32,12 +28,11 @@ export const initializeChatSession = (apiKey: string) => {
 
 export const sendMessageToArbiter = async (message: string): Promise<string> => {
   if (!chatSession) {
-    // If session isn't initialized, try to init with env
-    const key = getApiKey();
+    // Fix: Rely on process.env.API_KEY directly for initialization if session is missing
+    const key = process.env.API_KEY;
     if (key) {
       initializeChatSession(key);
     } else {
-       // Graceful fallback if key is missing
        console.warn("API Key missing for Arbiter.");
        return "The Arbiter is currently meditating (API Key missing).";
     }
@@ -47,6 +42,7 @@ export const sendMessageToArbiter = async (message: string): Promise<string> => 
     if (!chatSession) throw new Error("Session failed to initialize");
     
     const response = await chatSession.sendMessage({ message });
+    // Fix: Access .text as a property, not a method, as per SDK guidelines
     return response.text || "The Arbiter remains silent (No text returned).";
   } catch (error) {
     console.error("Gemini Error:", error);

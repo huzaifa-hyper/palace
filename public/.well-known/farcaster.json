@@ -1,3 +1,4 @@
+
 {
   "accountAssociation": {
     "header": "eyJmaWQiOjE1NjgzNDksInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHgyMTY3MTlkYjE3ZGYyRjU1ZDNCRDVlOUNhMjI0RDk4M0IwQjhCMjQyIn0",
@@ -7,11 +8,11 @@
   "frame": {
     "version": "1",
     "name": "Palace Rulers",
-    "iconUrl": "https://i.ibb.co/RpkC8TsM/Untitled-design-58.png",
+    "iconUrl": "https://palace-rulers-79ev.vercel.app/icon.png",
     "homeUrl": "https://palace-rulers-79ev.vercel.app/",
-    "imageUrl": "https://i.ibb.co/GQVvc55z/Untitled-design-55.png",
+    "imageUrl": "https://palace-rulers-79ev.vercel.app/splash.png",
     "buttonTitle": "Play Now",
-    "splashImageUrl": "https://i.ibb.co/RpkC8TsM/Untitled-design-58.png",
+    "splashImageUrl": "https://palace-rulers-79ev.vercel.app/splash.png",
     "splashBackgroundColor": "#0B1220",
     "heroUrl": "https://palace-rulers-79ev.vercel.app/splash.png"
   }

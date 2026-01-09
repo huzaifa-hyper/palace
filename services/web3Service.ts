@@ -1,7 +1,8 @@
-// Soneium Minato Testnet Config
-export const SONEIUM_CHAIN_ID = 1946; // Decimal
-export const SONEIUM_CHAIN_ID_HEX = '0x79a'; // Hex representation of 1946
-export const SONEIUM_RPC_URL = 'https://rpc.minato.soneium.org/';
+
+// Somnia Testnet Config
+export const SOMNIA_CHAIN_ID = 50370; // Decimal
+export const SOMNIA_CHAIN_ID_HEX = '0xc4c2'; // Hex representation of 50370
+export const SOMNIA_RPC_URL = 'https://rpc.testnet.somnia.network';
 export const MIN_USD_REQUIREMENT = 0.25;
 
 declare global {
@@ -21,7 +22,7 @@ export interface Web3Response {
 }
 
 export const web3Service = {
-  // Helper to fetch ETH price with fallback
+  // Helper to fetch STNET price (using ETH price as a proxy for testnet value/parity logic)
   getEthPrice: async (): Promise<number> => {
     try {
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
@@ -29,19 +30,20 @@ export const web3Service = {
       const data = await response.json();
       return data.ethereum.usd || 2500; 
     } catch (e) {
-      console.warn("Failed to fetch ETH price, using fallback ($2500).");
+      console.warn("Failed to fetch price, using fallback ($2500).");
       return 2500; 
     }
   },
 
-  // Switch or Add Soneium Minato Network
+  // Switch or Add Somnia Testnet Network
   switchNetwork: async () => {
     if (!window.ethereum) return;
 
     try {
+      // Fix: Corrected undefined variable SOMNIA_ID_HEX to SOMNIA_CHAIN_ID_HEX
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: SONEIUM_CHAIN_ID_HEX }],
+        params: [{ chainId: SOMNIA_CHAIN_ID_HEX }],
       });
     } catch (switchError: any) {
       // Error code 4902 means the chain has not been added to MetaMask
@@ -51,23 +53,43 @@ export const web3Service = {
             method: 'wallet_addEthereumChain',
             params: [
               {
-                chainId: SONEIUM_CHAIN_ID_HEX,
-                chainName: 'Soneium Minato Testnet',
-                rpcUrls: [SONEIUM_RPC_URL],
+                chainId: SOMNIA_CHAIN_ID_HEX,
+                chainName: 'Somnia Testnet',
+                rpcUrls: [SOMNIA_RPC_URL],
                 nativeCurrency: {
-                  name: 'Ethereum',
-                  symbol: 'ETH', 
+                  name: 'Somnia Token',
+                  symbol: 'STNET', 
                   decimals: 18,
                 },
-                blockExplorerUrls: ['https://explorer-testnet.soneium.org/'],
+                blockExplorerUrls: ['https://explorer.testnet.somnia.network'],
               },
             ],
           });
         } catch (addError) {
-          throw new Error('Failed to add Soneium Minato network.');
+          throw new Error('Failed to add Somnia Testnet.');
         }
       } else {
-        throw new Error('Failed to switch network.');
+        // Some wallets use different error codes or don't provide them reliably
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: SOMNIA_CHAIN_ID_HEX,
+                chainName: 'Somnia Testnet',
+                rpcUrls: [SOMNIA_RPC_URL],
+                nativeCurrency: {
+                  name: 'Somnia Token',
+                  symbol: 'STNET', 
+                  decimals: 18,
+                },
+                blockExplorerUrls: ['https://explorer.testnet.somnia.network'],
+              },
+            ],
+          });
+        } catch (e) {
+          throw new Error('Failed to switch to Somnia Testnet.');
+        }
       }
     }
   },
@@ -78,7 +100,6 @@ export const web3Service = {
       return { success: false, message: "Metamask not installed" };
     }
     
-    // Dynamic access to ensure script has loaded
     const ethers = window.ethers;
     if (!ethers) {
         return { success: false, message: "Ethers.js library failed to load. Please refresh." };
@@ -87,33 +108,23 @@ export const web3Service = {
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       
-      // 1. Request Account
       const accounts = await provider.send("eth_requestAccounts", []);
       if (!accounts || accounts.length === 0) {
         return { success: false, message: "No accounts found" };
       }
 
-      // 2. Ensure Correct Network
       await web3Service.switchNetwork();
       
-      // 3. Re-initialize provider/signer after switch to capture new context
       const updatedProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await updatedProvider.getSigner();
       const address = await signer.getAddress();
       
-      // 4. Get Balance
       const balanceBigInt = await updatedProvider.getBalance(address);
       const balanceEth = ethers.formatEther(balanceBigInt);
       
-      // 5. Calculate USD Value & Eligibility
       const ethPrice = await web3Service.getEthPrice();
-      // Ensure we don't return NaN
       const balanceUsd = Math.max(0, parseFloat(balanceEth) * ethPrice) || 0;
       const isEligible = balanceUsd >= MIN_USD_REQUIREMENT;
-
-      if (!isEligible) {
-          console.warn(`Insufficient funds: $${balanceUsd.toFixed(2)} < $${MIN_USD_REQUIREMENT}`);
-      }
 
       return {
         success: true,
