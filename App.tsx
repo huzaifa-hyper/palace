@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layers, Zap, Trophy, HelpCircle, BookOpen, Play, Crown, Users, Smartphone, Globe, Copy, Check, Search, Wifi, Wallet, AlertTriangle, ExternalLink, ArrowRight, X, Flame, ArrowDown, FileText, Ban, User, Bot, Lock } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
@@ -66,22 +65,42 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const ethereum = (sdk as any).wallet?.ethProvider || (window as any).ethereum;
+    // Safely detect ethereum provider for event listeners
+    const ethereum = (sdk as any)?.wallet?.ethProvider || window?.ethereum;
+    
     if (ethereum) {
       const handleAccountsChanged = (accounts: string[]) => {
-        if (accounts.length > 0) handleConnectWallet();
-        else setWallet({ isConnected: false, address: null, balanceEth: null, balanceUsdValue: null, isEligible: false, chainId: null });
-      };
-      const handleChainChanged = () => handleConnectWallet();
-      
-      ethereum.on('accountsChanged', handleAccountsChanged);
-      ethereum.on('chainChanged', handleChainChanged);
-      return () => {
-        if (ethereum.removeListener) {
-          ethereum.removeListener('accountsChanged', handleAccountsChanged);
-          ethereum.removeListener('chainChanged', handleChainChanged);
+        if (accounts && accounts.length > 0) {
+          handleConnectWallet();
+        } else {
+          setWallet({ 
+            isConnected: false, 
+            address: null, 
+            balanceEth: null, 
+            balanceUsdValue: null, 
+            isEligible: false, 
+            chainId: null 
+          });
         }
       };
+      
+      const handleChainChanged = () => {
+        handleConnectWallet();
+      };
+      
+      try {
+        ethereum.on('accountsChanged', handleAccountsChanged);
+        ethereum.on('chainChanged', handleChainChanged);
+        
+        return () => {
+          if (ethereum.removeListener) {
+            ethereum.removeListener('accountsChanged', handleAccountsChanged);
+            ethereum.removeListener('chainChanged', handleChainChanged);
+          }
+        };
+      } catch (e) {
+        console.warn("Error setting up provider listeners:", e);
+      }
     }
   }, []);
 
@@ -100,20 +119,27 @@ export default function App() {
   };
 
   const handleConnectWallet = async () => {
-    setWalletError(null);
-    const result = await web3Service.connectWallet();
-    if (result.success && result.address) {
-      setWallet({
-        isConnected: true,
-        address: result.address,
-        balanceEth: result.balance || '0',
-        balanceUsdValue: result.balanceUsd || 0,
-        isEligible: result.isEligible || false,
-        chainId: SOMNIA_CHAIN_ID
-      });
-    } else {
-      setWalletError(result.message || "Failed to connect wallet.");
-      setWallet(prev => ({ ...prev, isConnected: false }));
+    try {
+      setWalletError(null);
+      const result = await web3Service.connectWallet();
+      
+      if (result && result.success && result.address) {
+        setWallet({
+          isConnected: true,
+          address: result.address,
+          balanceEth: result.balance || '0',
+          balanceUsdValue: result.balanceUsd || 0,
+          isEligible: result.isEligible || false,
+          chainId: SOMNIA_CHAIN_ID
+        });
+      } else {
+        const errorMsg = result?.message || "Failed to connect wallet.";
+        setWalletError(errorMsg);
+        setWallet(prev => ({ ...prev, isConnected: false }));
+      }
+    } catch (e: any) {
+      console.error("Unhandled wallet connection error:", e);
+      setWalletError(e?.message || "An unexpected error occurred during connection.");
     }
   };
 
@@ -155,8 +181,8 @@ export default function App() {
     
     try {
         await p2pService.connect(SIGNALING_URL, action, code, userProfile?.name || 'Unknown');
-    } catch (e) {
-        setWalletError("Failed to initiate connection. Is the signaling server running?");
+    } catch (e: any) {
+        setWalletError(e?.message || "Failed to initiate connection. Is the signaling server running?");
         setConnectionStatus(null);
     }
   };
