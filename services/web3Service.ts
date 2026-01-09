@@ -1,4 +1,6 @@
 
+import sdk from '@farcaster/frame-sdk';
+
 // Somnia Testnet Config
 export const SOMNIA_CHAIN_ID = 50370; // Decimal
 export const SOMNIA_CHAIN_ID_HEX = '0xc4c2'; // Hex representation of 50370
@@ -21,6 +23,19 @@ export interface Web3Response {
   balanceUsd?: number;
 }
 
+// Utility to get the best available provider
+const getProviderSource = () => {
+  // Try Farcaster SDK provider first for native frame experience
+  if (typeof window !== 'undefined' && (sdk as any).wallet?.ethProvider) {
+    return (sdk as any).wallet.ethProvider;
+  }
+  // Fallback to window.ethereum
+  if (typeof window !== 'undefined' && window.ethereum) {
+    return window.ethereum;
+  }
+  return null;
+};
+
 export const web3Service = {
   // Helper to fetch STNET price (using ETH price as a proxy for testnet value/parity logic)
   getEthPrice: async (): Promise<number> => {
@@ -37,19 +52,19 @@ export const web3Service = {
 
   // Switch or Add Somnia Testnet Network
   switchNetwork: async () => {
-    if (!window.ethereum) return;
+    const ethereum = getProviderSource();
+    if (!ethereum) throw new Error('No ethereum provider found');
 
     try {
-      // Fix: Corrected undefined variable SOMNIA_ID_HEX to SOMNIA_CHAIN_ID_HEX
-      await window.ethereum.request({
+      await ethereum.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: SOMNIA_CHAIN_ID_HEX }],
       });
     } catch (switchError: any) {
-      // Error code 4902 means the chain has not been added to MetaMask
-      if (switchError.code === 4902) {
+      // Error code 4902 means the chain has not been added to the wallet
+      if (switchError.code === 4902 || switchError.message?.toLowerCase().includes('unrecognized')) {
         try {
-          await window.ethereum.request({
+          await ethereum.request({
             method: 'wallet_addEthereumChain',
             params: [
               {
@@ -66,60 +81,44 @@ export const web3Service = {
             ],
           });
         } catch (addError) {
-          throw new Error('Failed to add Somnia Testnet.');
+          throw new Error('Failed to add Somnia Testnet to your wallet.');
         }
       } else {
-        // Some wallets use different error codes or don't provide them reliably
-        try {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [
-              {
-                chainId: SOMNIA_CHAIN_ID_HEX,
-                chainName: 'Somnia Testnet',
-                rpcUrls: [SOMNIA_RPC_URL],
-                nativeCurrency: {
-                  name: 'Somnia Token',
-                  symbol: 'STNET', 
-                  decimals: 18,
-                },
-                blockExplorerUrls: ['https://explorer.testnet.somnia.network'],
-              },
-            ],
-          });
-        } catch (e) {
-          throw new Error('Failed to switch to Somnia Testnet.');
-        }
+        throw new Error('Please switch your wallet to the Somnia Testnet.');
       }
     }
   },
 
   // Main connection logic
   connectWallet: async (): Promise<Web3Response> => {
-    if (!window.ethereum) {
-      return { success: false, message: "Metamask not installed" };
+    const ethereum = getProviderSource();
+    if (!ethereum) {
+      return { success: false, message: "Wallet provider not detected. Please open in a Web3 browser or Farcaster client." };
     }
     
     const ethers = window.ethers;
     if (!ethers) {
-        return { success: false, message: "Ethers.js library failed to load. Please refresh." };
+        return { success: false, message: "Ethers.js library failed to load. Please refresh the page." };
     }
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      
-      const accounts = await provider.send("eth_requestAccounts", []);
+      // 1. Request accounts
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
       if (!accounts || accounts.length === 0) {
-        return { success: false, message: "No accounts found" };
+        return { success: false, message: "No wallet accounts found." };
       }
 
+      // 2. Ensure we are on Somnia Testnet
       await web3Service.switchNetwork();
       
-      const updatedProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await updatedProvider.getSigner();
+      // 3. Re-initialize provider after possible network switch
+      const updatedEthereum = getProviderSource();
+      const provider = new ethers.BrowserProvider(updatedEthereum);
+      const signer = await provider.getSigner();
       const address = await signer.getAddress();
       
-      const balanceBigInt = await updatedProvider.getBalance(address);
+      // 4. Check Balance & Eligibility
+      const balanceBigInt = await provider.getBalance(address);
       const balanceEth = ethers.formatEther(balanceBigInt);
       
       const ethPrice = await web3Service.getEthPrice();
@@ -136,9 +135,15 @@ export const web3Service = {
 
     } catch (error: any) {
       console.error("Wallet connection error:", error);
+      
+      // Handle user rejection specifically
+      if (error.code === 4001) {
+        return { success: false, message: "Connection request rejected by user." };
+      }
+      
       return { 
         success: false, 
-        message: error.message || "Connection failed", 
+        message: error.message || "Failed to connect wallet.", 
         isEligible: false 
       };
     }

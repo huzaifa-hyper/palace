@@ -66,18 +66,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (window.ethereum) {
+    const ethereum = (sdk as any).wallet?.ethProvider || (window as any).ethereum;
+    if (ethereum) {
       const handleAccountsChanged = (accounts: string[]) => {
         if (accounts.length > 0) handleConnectWallet();
         else setWallet({ isConnected: false, address: null, balanceEth: null, balanceUsdValue: null, isEligible: false, chainId: null });
       };
       const handleChainChanged = () => handleConnectWallet();
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
-      window.ethereum.on('chainChanged', handleChainChanged);
+      
+      ethereum.on('accountsChanged', handleAccountsChanged);
+      ethereum.on('chainChanged', handleChainChanged);
       return () => {
-        if (window.ethereum.removeListener) {
-          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        if (ethereum.removeListener) {
+          ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          ethereum.removeListener('chainChanged', handleChainChanged);
         }
       };
     }
