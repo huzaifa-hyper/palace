@@ -50,7 +50,7 @@ export default function App() {
       try {
         await sdk.actions.ready();
       } catch (err) {
-        console.warn("Failed to call sdk.actions.ready():", err);
+        console.warn("Farcaster SDK ready error:", err);
       }
     };
     initSdk();
@@ -65,7 +65,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Safely detect ethereum provider for event listeners on Somnia Testnet
+    // Robust provider detection for listeners
     const ethereum = (sdk as any)?.wallet?.ethProvider || window?.ethereum;
     
     if (ethereum && typeof ethereum.on === 'function') {
@@ -93,13 +93,13 @@ export default function App() {
         ethereum.on('chainChanged', handleChainChanged);
         
         return () => {
-          if (ethereum.removeListener) {
+          if (typeof ethereum.removeListener === 'function') {
             ethereum.removeListener('accountsChanged', handleAccountsChanged);
             ethereum.removeListener('chainChanged', handleChainChanged);
           }
         };
       } catch (e) {
-        console.warn("Error setting up provider listeners:", e);
+        console.warn("Failed to attach provider event listeners:", e);
       }
     }
   }, []);
@@ -133,28 +133,24 @@ export default function App() {
           chainId: SOMNIA_CHAIN_ID
         });
       } else {
-        const errorMsg = result && result.message ? result.message : "Failed to connect to Somnia wallet.";
+        const errorMsg = result?.message || "Failed to connect to Somnia Testnet.";
         setWalletError(String(errorMsg));
         setWallet(prev => ({ ...prev, isConnected: false }));
       }
     } catch (e: any) {
-      console.error("UI: Unhandled wallet connection error:", e);
-      let msg = "An unexpected error occurred.";
-      if (e && e.message) msg = e.message;
-      else if (typeof e === 'string') msg = e;
-      else msg = JSON.stringify(e);
-      
+      console.error("UI: Connection error captured:", e);
+      const msg = e?.message || (typeof e === 'string' ? e : "Critical connection failure.");
       setWalletError(msg);
     }
   };
 
   const checkGameEligibility = () => {
     if (!wallet.isConnected) {
-      setWalletError("Access Denied: Please connect your Somnia Testnet wallet to play.");
+      setWalletError("Access Denied: Please connect your Somnia Testnet wallet.");
       return false;
     }
     if (!wallet.isEligible || (wallet.balanceUsdValue || 0) < 0.25) {
-      setWalletError(`Insufficient Funds: You need at least $0.25 USD worth of STNET on Somnia to play.`);
+      setWalletError(`Insufficient Funds: You need ~$0.25 USD of STNET on Somnia Testnet to play.`);
       return false;
     }
     return true;
@@ -163,14 +159,14 @@ export default function App() {
   const connectToLobby = async (code: string, action: 'create' | 'join') => {
     p2pService.destroy();
     setConnectionStatus('CONNECTING_SIGNALING');
-    setStatusMessage('Connecting to Server...');
+    setStatusMessage('Connecting to Palace Server...');
 
     p2pService.onConnectionStatus((status) => {
         setConnectionStatus(status);
         if (status === 'WAITING_FOR_OPPONENT') {
             setStatusMessage('Waiting for Opponent...');
         } else if (status === 'ESTABLISHING_P2P') {
-            setStatusMessage('Opening P2P Tunnel (WebRTC)...');
+            setStatusMessage('Opening P2P Tunnel...');
         } else if (status === 'CONNECTED') {
             setGameConfig({ mode: p2pService.isHost ? 'ONLINE_HOST' : 'ONLINE_CLIENT', playerCount: 2 });
             setConnectionStatus('GAME_ACTIVE');
@@ -181,13 +177,13 @@ export default function App() {
     p2pService.onPlayerDisconnected((reason) => {
         setConnectionStatus(null);
         setGameConfig(null);
-        setWalletError(`Connection Lost: ${reason}`);
+        setWalletError(`Palace Connection Lost: ${reason}`);
     });
     
     try {
         await p2pService.connect(SIGNALING_URL, action, code, userProfile?.name || 'Unknown');
     } catch (e: any) {
-        setWalletError(e && e.message ? e.message : "Failed to initiate connection.");
+        setWalletError(e?.message || "Failed to initiate server connection.");
         setConnectionStatus(null);
     }
   };
@@ -301,7 +297,7 @@ export default function App() {
                 </div>
                 <div>
                    <h3 className="font-bold text-slate-200 text-sm">Somnia Testnet Access</h3>
-                   <div className="text-xs text-slate-400">Required to play ANY mode</div>
+                   <div className="text-xs text-slate-400">Secure entry for all Rulers</div>
                 </div>
              </div>
              {wallet.isConnected ? (
@@ -315,7 +311,7 @@ export default function App() {
                     {wallet.isEligible ? <Check className="w-5 h-5 text-emerald-500" /> : <AlertTriangle className="w-5 h-5 text-red-500" />}
                 </div>
              ) : (
-                <button onClick={handleConnectWallet} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg">Connect Wallet</button>
+                <button onClick={handleConnectWallet} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg">Connect to Somnia</button>
              )}
          </div>
 
@@ -334,18 +330,18 @@ export default function App() {
                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 border-2 border-amber-400 flex items-center justify-center text-2xl font-bold text-amber-100 shadow-[0_0_20px_rgba(245,158,11,0.4)]">{userProfile?.name.charAt(0)}</div>
                <div>
                   <h2 className="text-2xl font-playfair font-bold text-white">{userProfile?.name}</h2>
-                  <div className="flex items-center gap-2 text-slate-400 text-sm"><Crown className="w-4 h-4 text-amber-500" /><span>Aspiring Ruler</span></div>
+                  <div className="flex items-center gap-2 text-slate-400 text-sm"><Crown className="w-4 h-4 text-amber-500" /><span>Palace Ruler</span></div>
                </div>
             </div>
          </div>
 
          <div className="grid md:grid-cols-2 gap-6">
             <div className="space-y-4">
-               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Smartphone className="w-4 h-4" /> Offline Modes</div>
+               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Smartphone className="w-4 h-4" /> Practice Grounds</div>
                <div className="relative">
                  {offlineSetupMode === 'VS_BOT' ? (
                    <div className="bg-slate-800/90 border border-emerald-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
-                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-emerald-400 flex items-center gap-2"><Bot size={18}/> Select Bot Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
+                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-emerald-400 flex items-center gap-2"><Bot size={18}/> Bot Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
                       <div className="grid grid-cols-3 gap-3">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-700 hover:bg-emerald-600 py-3 rounded-xl font-bold transition-colors">{num} Players</button>))}</div>
                    </div>
                  ) : (
@@ -354,8 +350,8 @@ export default function App() {
                       {!wallet.isEligible && <div className="absolute top-4 right-4 bg-red-500/20 text-red-400 p-2 rounded-full z-20"><Lock size={20} /></div>}
                       <div className="relative z-10">
                          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4 group-hover:bg-emerald-500/30 transition-colors"><Bot className="w-6 h-6 text-emerald-400" /></div>
-                         <h3 className="text-xl font-bold text-white mb-2">Practice vs Bots</h3>
-                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Hone your skills against the Palace AI. Select 2-4 players.</p>
+                         <h3 className="text-xl font-bold text-white mb-2">VS Palace Bots</h3>
+                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Hone strategy against AI on Somnia Testnet.</p>
                       </div>
                    </button>
                  )}
@@ -364,7 +360,7 @@ export default function App() {
                <div className="relative">
                  {offlineSetupMode === 'PASS_AND_PLAY' ? (
                    <div className="bg-slate-800/90 border border-purple-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
-                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-purple-400 flex items-center gap-2"><Smartphone size={18}/> Select Player Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
+                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-purple-400 flex items-center gap-2"><Smartphone size={18}/> Player Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
                       <div className="grid grid-cols-3 gap-3">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-700 hover:bg-purple-600 py-3 rounded-xl font-bold transition-colors">{num} Players</button>))}</div>
                    </div>
                  ) : (
@@ -373,8 +369,8 @@ export default function App() {
                       {!wallet.isEligible && <div className="absolute top-4 right-4 bg-red-500/20 text-red-400 p-2 rounded-full z-20"><Lock size={20} /></div>}
                       <div className="relative z-10">
                          <div className="w-12 h-12 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-4 group-hover:bg-purple-500/30 transition-colors"><Smartphone className="w-6 h-6 text-purple-400" /></div>
-                         <h3 className="text-xl font-bold text-white mb-2">Pass & Play</h3>
-                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Play with friends on a single device. Supports 2-4 players.</p>
+                         <h3 className="text-xl font-bold text-white mb-2">Local Duel</h3>
+                         <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Pass & Play with friends locally on Somnia.</p>
                       </div>
                    </button>
                  )}
@@ -382,22 +378,17 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Globe className="w-4 h-4" /> Palace Rulers Online</div>
-               <div className="bg-slate-900/40 p-6 rounded-3xl border border-blue-500/20 relative overflow-hidden opacity-75 grayscale-[50%]">
-                  <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span></div>
+               <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Globe className="w-4 h-4" /> Global Conquest</div>
+               <div className="bg-slate-900/40 p-6 rounded-3xl border border-blue-500/20 relative overflow-hidden opacity-75">
+                  <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg uppercase">Somnia Mainnet Soon</span></div>
                   <div className="relative z-10">
-                     <div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center"><Zap className="w-5 h-5 text-blue-400" /></div><h3 className="text-lg font-bold text-white">Quick Match</h3></div>
-                     <p className="text-xs text-slate-400">Match with random opponents. Ranked play with rewards.</p>
+                     <div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center"><Zap className="w-5 h-5 text-blue-400" /></div><h3 className="text-lg font-bold text-white">Ranked Match</h3></div>
+                     <p className="text-xs text-slate-400">Competitive play with on-chain verification.</p>
                   </div>
                </div>
-               <div className="bg-slate-900/40 p-6 rounded-3xl border border-white/10 relative overflow-hidden opacity-75 grayscale-[50%]">
-                   <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-slate-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span></div>
+               <div className="bg-slate-900/40 p-6 rounded-3xl border border-white/10 relative overflow-hidden opacity-75">
+                   <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-slate-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">LOCKED</span></div>
                    <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"><Wifi className="w-5 h-5 text-slate-400" /></div><h3 className="text-lg font-bold text-white">Friend Lobby</h3></div>
-                   <div className="grid grid-cols-2 gap-3 opacity-50"><button className="bg-slate-700 p-3 rounded-xl text-sm font-bold">Host</button><button className="bg-slate-700 p-3 rounded-xl text-sm font-bold">Join</button></div>
-               </div>
-               <div className="bg-slate-900/40 p-6 rounded-3xl border border-amber-500/20 relative overflow-hidden opacity-75 grayscale-[50%]">
-                  <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-amber-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg">COMING SOON</span></div>
-                  <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center"><Trophy className="w-5 h-5 text-amber-400" /></div><h3 className="text-lg font-bold text-white">Tournament</h3></div>
                </div>
             </div>
          </div>
@@ -405,20 +396,19 @@ export default function App() {
          <div className="mt-8 bg-slate-900/60 p-6 rounded-3xl border border-white/5 relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-50"><Trophy className="w-24 h-24 text-slate-800 rotate-12" /></div>
              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-4"><span className="bg-amber-500/20 text-amber-400 px-2 py-1 rounded text-[10px] font-bold tracking-widest uppercase">Weekly Rewards</span><span className="text-xs text-slate-500 font-bold bg-slate-800 px-2 py-1 rounded-full">Coming Soon</span></div>
+                <div className="flex items-center gap-2 mb-4"><span className="bg-amber-500/20 text-amber-400 px-2 py-1 rounded text-[10px] font-bold tracking-widest uppercase">Palace Treasury</span><span className="text-xs text-slate-500 font-bold bg-slate-800 px-2 py-1 rounded-full">Somnia Testnet</span></div>
                 <h3 className="text-xl font-bold text-white mb-2">The Somnia Pool</h3>
-                <p className="text-slate-400 text-sm mb-4 max-w-2xl">Compete for real rewards on the Somnia Testnet chain.</p>
+                <p className="text-slate-400 text-sm mb-4 max-w-2xl">Verify your standing on the Somnia Testnet chain to participate in the upcoming leaderboard events.</p>
                 <div className="grid md:grid-cols-2 gap-4">
                    <div className="bg-slate-950/50 p-4 rounded-xl border border-white/5">
-                      <div className="text-emerald-400 font-bold text-sm mb-1 flex items-center gap-2"><Wallet className="w-4 h-4"/> Deposit</div>
-                      <p className="text-xs text-slate-400">Players deposit <strong>$0.25 worth of STNET</strong> into the weekly smart contract pool to verify eligibility.</p>
+                      <div className="text-emerald-400 font-bold text-sm mb-1 flex items-center gap-2"><Wallet className="w-4 h-4"/> Deposit Verification</div>
+                      <p className="text-xs text-slate-400">Players must hold at least <strong>$0.25 of STNET</strong> to verify throne eligibility.</p>
                    </div>
                    <div className="bg-slate-950/50 p-4 rounded-xl border border-white/5">
-                      <div className="text-amber-400 font-bold text-sm mb-1 flex items-center gap-2"><Crown className="w-4 h-4"/> Win</div>
-                      <p className="text-xs text-slate-400">The top 5 players with the most <strong>Quick Match</strong> wins at the end of the week split the pool!</p>
+                      <div className="text-amber-400 font-bold text-sm mb-1 flex items-center gap-2"><Crown className="w-4 h-4"/> Claim Glory</div>
+                      <p className="text-xs text-slate-400">Testnet performance will be recorded for future reward tiers.</p>
                    </div>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-4 italic">Note: Friendly multiplayer matches do not count towards the leaderboard. Only ranked Quick Matches qualify.</p>
              </div>
          </div>
       </div>
