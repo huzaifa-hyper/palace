@@ -1,10 +1,15 @@
 import sdk from '@farcaster/frame-sdk';
 
-// Somnia Testnet Config
-export const SOMNIA_CHAIN_ID = 50370; // Decimal
-export const SOMNIA_CHAIN_ID_HEX = '0xc4c2'; // Hex representation of 50370
+// Somnia Testnet Configuration
+export const SOMNIA_CHAIN_ID = 50370; // Decimal: 50370
+export const SOMNIA_CHAIN_ID_HEX = '0xc4c2'; // Hex: 0xc4c2
 export const SOMNIA_RPC_URL = 'https://rpc.testnet.somnia.network';
+export const SOMNIA_EXPLORER_URL = 'https://explorer.testnet.somnia.network';
 export const MIN_USD_REQUIREMENT = 0.25;
+
+// Placeholder for future smart contract integration (e.g., The Somnia Pool)
+// To be updated when the contract is deployed on Somnia Testnet
+export const SOMNIA_POOL_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000000'; 
 
 declare global {
   interface Window {
@@ -48,7 +53,7 @@ const getProviderSource = () => {
 
 export const web3Service = {
   /**
-   * Fetches STNET price (using ETH as a proxy).
+   * Fetches STNET price (using ETH as a proxy for testnet valuation).
    */
   getEthPrice: async (): Promise<number> => {
     try {
@@ -78,7 +83,7 @@ export const web3Service = {
         params: [{ chainId: SOMNIA_CHAIN_ID_HEX }],
       });
     } catch (switchError: any) {
-      // Extremely defensive check for error codes
+      // Defensive check for error codes
       const errorCode = switchError ? (switchError.code || (switchError.data && switchError.data.code)) : null;
       const errorMsg = switchError && switchError.message ? switchError.message.toLowerCase() : '';
       
@@ -97,7 +102,7 @@ export const web3Service = {
                   symbol: 'STNET', 
                   decimals: 18,
                 },
-                blockExplorerUrls: ['https://explorer.testnet.somnia.network'],
+                blockExplorerUrls: [SOMNIA_EXPLORER_URL],
               },
             ],
           });
@@ -115,13 +120,13 @@ export const web3Service = {
   },
 
   /**
-   * Main connection logic.
+   * Main connection logic for Somnia Testnet.
    */
   connectWallet: async (): Promise<Web3Response> => {
     const ethereum = getProviderSource();
     
     if (!ethereum) {
-      return { success: false, message: "No Web3 wallet detected. Please open in a crypto browser or Farcaster." };
+      return { success: false, message: "No Web3 wallet detected. Please use a browser with Somnia support or Farcaster." };
     }
     
     const ethers = window.ethers;
@@ -144,7 +149,7 @@ export const web3Service = {
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       
-      // 4. State checks
+      // 4. State checks on Somnia Testnet
       const balanceBigInt = await provider.getBalance(address);
       const balanceEth = ethers.formatEther(balanceBigInt);
       
@@ -161,15 +166,13 @@ export const web3Service = {
       };
 
     } catch (error: any) {
-      console.error("ConnectWallet Error:", error);
+      console.error("Somnia Connection Error:", error);
       
-      // Check for common rejection codes
       if (error && (error.code === 4001 || (error.message && error.message.includes('rejected')))) {
         return { success: false, message: "Request was rejected in your wallet." };
       }
       
-      // Safely extract message
-      let message = "An unknown connection error occurred.";
+      let message = "An unknown connection error occurred on Somnia.";
       if (typeof error === 'string') message = error;
       else if (error && error.message) message = error.message;
       else if (error && typeof error === 'object') message = JSON.stringify(error);

@@ -1,6 +1,6 @@
 {
   "name": "Palace Rulers",
-  "description": "Interactive rulebook and AI arbiter for the Palace Rulers card game on Somnia Testnet.",
+  "description": "The premier strategy card game, now live on Somnia Testnet. Fortify your stronghold and compete for the throne.",
   "requestFramePermissions": [],
   "frame": {
     "version": "1",
@@ -8,7 +8,7 @@
     "iconUrl": "https://palace-rulers-79ev.vercel.app/icon.png",
     "homeUrl": "https://palace-rulers-79ev.vercel.app/",
     "imageUrl": "https://palace-rulers-79ev.vercel.app/splash.png",
-    "buttonTitle": "Play Now",
+    "buttonTitle": "Play on Somnia",
     "splashImageUrl": "https://palace-rulers-79ev.vercel.app/splash.png",
     "splashBackgroundColor": "#0B1220"
   }

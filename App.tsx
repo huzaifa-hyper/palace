@@ -65,7 +65,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Safely detect ethereum provider for event listeners
+    // Safely detect ethereum provider for event listeners on Somnia Testnet
     const ethereum = (sdk as any)?.wallet?.ethProvider || window?.ethereum;
     
     if (ethereum && typeof ethereum.on === 'function') {
@@ -133,13 +133,12 @@ export default function App() {
           chainId: SOMNIA_CHAIN_ID
         });
       } else {
-        const errorMsg = result && result.message ? result.message : "Failed to connect wallet.";
+        const errorMsg = result && result.message ? result.message : "Failed to connect to Somnia wallet.";
         setWalletError(String(errorMsg));
         setWallet(prev => ({ ...prev, isConnected: false }));
       }
     } catch (e: any) {
       console.error("UI: Unhandled wallet connection error:", e);
-      // Ensure we always have a string message
       let msg = "An unexpected error occurred.";
       if (e && e.message) msg = e.message;
       else if (typeof e === 'string') msg = e;
@@ -155,7 +154,7 @@ export default function App() {
       return false;
     }
     if (!wallet.isEligible || (wallet.balanceUsdValue || 0) < 0.25) {
-      setWalletError(`Insufficient Funds: You need at least $0.25 USD worth of STNET to play.`);
+      setWalletError(`Insufficient Funds: You need at least $0.25 USD worth of STNET on Somnia to play.`);
       return false;
     }
     return true;
