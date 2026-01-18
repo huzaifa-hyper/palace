@@ -52,16 +52,19 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
     }
   }
 
-  // Use aspect-ratio to prevent stretching. 
-  // Poker card standard is 2.5" x 3.5" (1:1.4 ratio)
+  /**
+   * FIX: STRICT DIMENSIONS
+   * Using rem for widths and aspect-ratio for height ensures cards NEVER stretch.
+   * flex-shrink-0 prevents containers from squashing them.
+   */
   const baseClasses = `
     relative 
-    w-12 sm:w-16 md:w-20 lg:w-24
+    w-[3.2rem] sm:w-[4rem] md:w-[4.5rem] lg:w-[5.5rem]
     aspect-[2.5/3.5]
     rounded-md md:rounded-lg 
     transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] 
     select-none cursor-pointer will-change-transform
-    flex shrink-0 items-stretch justify-stretch
+    flex-shrink-0
     ${dimmed ? 'brightness-50 grayscale-[50%]' : ''}
     ${className}
   `;
@@ -72,7 +75,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
         w-full h-full
         bg-slate-900 border border-slate-200/30 rounded-[inherit]
         overflow-hidden shadow-lg flex items-center justify-center
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-10 scale-105' : 'shadow-black/50'}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-10 scale-105 shadow-amber-500/20 shadow-2xl' : 'shadow-black/50'}
       `}
     >
       <div className="absolute inset-0 bg-[#0f172a]" style={{
@@ -81,8 +84,8 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
             repeating-linear-gradient(-45deg, #1e293b 0px, #1e293b 1px, transparent 1px, transparent 4px)
           `
       }}></div>
-      <div className="relative z-10">
-         <Sparkles className="w-4 h-4 md:w-6 md:h-6 text-amber-500/20" />
+      <div className="relative z-10 opacity-30">
+         <Sparkles className="w-5 h-5 md:w-8 md:h-8 text-amber-500" />
       </div>
     </div>
   ) : (
@@ -90,7 +93,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       className={`
         w-full h-full
         bg-white border border-slate-300 rounded-[inherit]
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-20 scale-110 shadow-2xl' : ''}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-20 scale-110 shadow-2xl shadow-amber-500/20' : ''}
         ${selected 
             ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 z-40 shadow-2xl brightness-105' 
             : 'hover:shadow-xl'
@@ -101,27 +104,27 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
     >
       {/* Corner Rank/Suit Top */}
       <div className="absolute top-1 left-1 flex flex-col items-center leading-none">
-        <span className="font-playfair text-[10px] sm:text-sm md:text-lg font-black tracking-tight">{rank}</span>
-        <span className="text-[6px] sm:text-[10px] md:text-xs -mt-0.5">{suit}</span>
+        <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
+        <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
       {/* Corner Rank/Suit Bottom */}
       <div className="absolute bottom-1 right-1 flex flex-col items-center leading-none transform rotate-180">
-        <span className="font-playfair text-[10px] sm:text-sm md:text-lg font-black tracking-tight">{rank}</span>
-        <span className="text-[6px] sm:text-[10px] md:text-xs -mt-0.5">{suit}</span>
+        <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
+        <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
       {/* Center Detail */}
       <div className="flex-1 flex flex-col items-center justify-center pointer-events-none p-2">
         {PowerIcon ? (
-          <div className={`flex flex-col items-center justify-center ${powerColor} opacity-90`}>
-            <PowerIcon className="w-4 h-4 sm:w-6 sm:h-6 md:w-8 md:h-8 mb-1" strokeWidth={2.5} />
+          <div className={`flex flex-col items-center justify-center ${powerColor} opacity-90 scale-90 md:scale-100`}>
+            <PowerIcon className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 mb-1" strokeWidth={2.5} />
             <span className="text-[4px] md:text-[8px] font-black tracking-widest uppercase border-[0.5px] border-current px-1.5 py-0.5 rounded-full bg-white/70">
               {powerLabel}
             </span>
           </div>
         ) : (
-          <div className="text-xl sm:text-3xl md:text-5xl opacity-80 font-serif transform scale-y-90">
+          <div className="text-xl sm:text-3xl md:text-5xl opacity-80 font-serif transform scale-y-90 font-bold">
             {suit}
           </div>
         )}

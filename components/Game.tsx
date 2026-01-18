@@ -268,37 +268,41 @@ export const Game: React.FC<{
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
       
-      {/* 1. Header (Fixed Height) */}
-      <header className="h-10 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-50 shrink-0">
+      {/* 1. Header (Anchored Top) */}
+      <header className="h-10 shrink-0 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-[200]">
         <div className="flex items-center gap-2">
-          <button onClick={onExit} className="p-1 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400"><X size={18} /></button>
-          <div className="h-4 w-px bg-white/10"></div>
-          <h1 className="text-xs font-playfair font-black text-amber-500 tracking-tighter uppercase"><Zap size={12} className="inline mr-1 fill-amber-500" /> Palace Rulers</h1>
+          <button onClick={onExit} className="p-1.5 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"><X size={16} /></button>
+          <div className="h-4 w-px bg-white/10 mx-1"></div>
+          <h1 className="text-[10px] sm:text-xs font-playfair font-black text-amber-500 tracking-widest uppercase flex items-center gap-1.5">
+            <Zap size={10} className="fill-amber-500" /> Palace Rulers
+          </h1>
         </div>
-        <button onClick={() => setIsMuted(!isMuted)} className="p-1.5 text-slate-400 hover:text-white transition-all">{isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
+        <button onClick={() => setIsMuted(!isMuted)} className="p-2 text-slate-400 hover:text-white transition-all">
+          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </button>
       </header>
 
-      {/* 2. Opponents Row */}
-      <div className="h-12 flex items-center justify-center gap-6 shrink-0 pointer-events-none bg-slate-950/20 border-b border-white/5">
+      {/* 2. Opponents (Fixed Height) */}
+      <div className="h-12 shrink-0 flex items-center justify-center gap-4 bg-slate-950/40 border-b border-white/5 pointer-events-none">
         {players.filter(p => !p.isHuman).map(opp => (
-          <div key={opp.id} className={`flex items-center gap-2 transition-all ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
-             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${turnIndex === opp.id ? 'border-amber-500 shadow-lg' : 'border-slate-700'}`}>
+          <div key={opp.id} className={`flex items-center gap-2 transition-all duration-500 ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
+             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${turnIndex === opp.id ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'border-slate-700'}`}>
                <Bot size={16} className={turnIndex === opp.id ? 'text-amber-500' : 'text-slate-600'} />
              </div>
-             <p className="text-[10px] font-black uppercase text-white">{opp.name} ({opp.hand.length})</p>
+             <p className="text-[10px] font-black uppercase text-white tracking-tight">{opp.name} ({opp.hand.length})</p>
           </div>
         ))}
       </div>
 
-      {/* 3. Main Battlefield Area (Scrollable/Flex if needed) */}
-      <div className="flex-1 flex flex-col items-center justify-around min-h-0 overflow-hidden px-4 py-2 relative">
+      {/* 3. Battlefield (Flexible Middle) */}
+      <main className="flex-1 flex flex-col items-center justify-between min-h-0 overflow-hidden relative py-2">
         
-        {/* Central Pile Container */}
-        <div className="w-full flex-1 flex items-center justify-center relative min-h-0">
-          <div className="relative w-full h-full flex items-center justify-center max-h-[300px]">
+        {/* Central Pile Area */}
+        <div className="flex-1 w-full flex items-center justify-center relative min-h-0">
+          <div className="relative w-40 h-40 md:w-56 md:h-56 flex items-center justify-center">
              {pile.length === 0 ? (
-                <div className="w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-lg flex items-center justify-center text-white/5">
-                  <Swords size={24} />
+                <div className="w-16 md:w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-xl flex items-center justify-center text-white/5">
+                  <Swords size={28} />
                 </div>
              ) : (
                 pile.slice(-5).map((card, i) => (
@@ -307,86 +311,104 @@ export const Game: React.FC<{
                   </div>
                 ))
              )}
+             
+             {/* Power Card Constraints */}
              {activeConstraint === 'LOWER_THAN_7' && (
-               <div className="absolute top-0 bg-emerald-500 text-slate-950 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest animate-bounce z-50 shadow-xl">MUST BE ≤ 7</div>
+               <div className="absolute -top-4 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce z-50 shadow-[0_10px_25px_rgba(16,185,129,0.4)]">
+                 Must play ≤ 7
+               </div>
              )}
           </div>
         </div>
 
-        {/* Central Action Area for Setup */}
-        {phase === 'SETUP' && (
-          <div className="my-2 flex flex-col items-center gap-2 z-[60] animate-in fade-in slide-in-from-bottom-2">
-            <button 
-              onClick={confirmSetup} 
-              disabled={selectedCardIds.length !== 3} 
-              className={`px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110' : 'bg-slate-800 text-slate-600 opacity-60'}`}
-            >
-              <ShieldCheck size={16} /> Confirm Stronghold ({selectedCardIds.length}/3)
-            </button>
-            <p className="text-[8px] text-amber-500 font-bold uppercase tracking-widest">Select 3 Defense Cards from your hand</p>
-          </div>
-        )}
+        {/* Action / Stronghold Area (Anchored Bottom of Battlefield) */}
+        <div className="w-full shrink-0 flex flex-col items-center gap-3 pb-2">
+          
+          {/* Setup CTA */}
+          {phase === 'SETUP' && (
+            <div className="flex flex-col items-center gap-1.5 z-[150] animate-in slide-in-from-bottom-2 duration-500">
+              <button 
+                onClick={confirmSetup} 
+                disabled={selectedCardIds.length !== 3} 
+                className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400' : 'bg-slate-800 text-slate-500 opacity-50 cursor-not-allowed border-white/5'}`}
+              >
+                <ShieldCheck size={14} /> Confirm Stronghold ({selectedCardIds.length}/3)
+              </button>
+              <p className="text-[7px] text-amber-500/60 font-black uppercase tracking-[0.3em] bg-slate-950/40 px-3 py-1 rounded-full">Select 3 defense cards</p>
+            </div>
+          )}
 
-        {/* Player Stronghold Layer */}
-        <div className="w-full flex justify-center items-center py-2 shrink-0">
-          <div className="flex gap-4 p-2 bg-slate-950/40 rounded-2xl border border-white/5 shadow-inner">
-            {players[0]?.hiddenCards.map((c, i) => (
-              <div key={`stronghold-${i}`} className="relative">
-                 <PlayingCard faceDown className="scale-90 md:scale-100" />
-                 {players[0].faceUpCards[i] && (
-                   <div className="absolute -top-3 -right-3 z-10 scale-90 md:scale-100">
-                      <PlayingCard 
-                        {...players[0].faceUpCards[i]} 
-                        onClick={() => { if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) playCards([players[0].faceUpCards[i].id], 'FACEUP'); }} 
-                      />
-                   </div>
-                 )}
-                 {turnIndex === 0 && players[0].hand.length === 0 && players[0].faceUpCards.length === 0 && i === 0 && (
-                   <button onClick={() => playCards([players[0].hiddenCards[0].id], 'HIDDEN')} className="absolute inset-0 bg-amber-500/20 rounded-lg border-2 border-amber-500 animate-pulse flex items-center justify-center z-50">
-                     <Eye size={24} className="text-white" />
-                   </button>
-                 )}
-              </div>
-            ))}
+          {/* Stronghold Cards */}
+          <div className="flex justify-center gap-3 p-3 bg-slate-900/60 rounded-[2rem] border border-white/5 shadow-inner backdrop-blur-sm">
+             {players[0]?.hiddenCards.map((c, i) => (
+               <div key={`stronghold-${i}`} className="relative">
+                  <PlayingCard faceDown className="scale-90 md:scale-100" />
+                  {players[0].faceUpCards[i] && (
+                    <div className="absolute -top-3 -right-3 z-10 scale-90 md:scale-100 drop-shadow-2xl">
+                       <PlayingCard 
+                         {...players[0].faceUpCards[i]} 
+                         onClick={() => { if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) playCards([players[0].faceUpCards[i].id], 'FACEUP'); }} 
+                       />
+                    </div>
+                  )}
+                  {turnIndex === 0 && players[0].hand.length === 0 && players[0].faceUpCards.length === 0 && i === 0 && (
+                    <button onClick={() => playCards([players[0].hiddenCards[0].id], 'HIDDEN')} className="absolute inset-0 bg-amber-500/20 rounded-xl border-2 border-amber-500 animate-pulse flex items-center justify-center z-50">
+                      <Eye size={24} className="text-white" />
+                    </button>
+                  )}
+               </div>
+             ))}
           </div>
         </div>
 
-        {/* Logs Banner (Overlay-like) */}
-        <div className="absolute top-4 right-4 w-40 max-h-24 overflow-y-auto no-scrollbar pointer-events-none hidden md:flex flex-col gap-1 z-20">
+        {/* Floating Logs (Desktop only) */}
+        <div className="absolute top-4 right-4 w-44 max-h-32 overflow-hidden pointer-events-none hidden md:flex flex-col gap-1 z-20">
            {logs.slice(-4).map((log, i) => (
-             <div key={i} className="bg-slate-950/80 p-2 rounded-lg border border-white/5 text-[8px] font-bold text-slate-400 uppercase tracking-widest shadow-lg">{log}</div>
+             <div key={i} className="bg-slate-950/80 p-2.5 rounded-xl border border-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-widest shadow-xl animate-in slide-in-from-right-4">{log}</div>
            ))}
         </div>
-      </div>
+      </main>
 
-      {/* 4. Player Hand (Fixed Footer) */}
-      <footer className="h-28 md:h-36 bg-slate-950 border-t border-white/10 p-2 relative flex items-center justify-center shrink-0 z-[100] overflow-visible">
+      {/* 4. Player Hand (Anchored Bottom) */}
+      <footer className="h-32 md:h-40 bg-slate-950 border-t border-white/10 p-2 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
+        {/* Context Button */}
         {phase === 'PLAYING' && turnIndex === 0 && (
-           <button onClick={pickUpPile} className="absolute -top-4 left-4 bg-slate-900 text-white font-black text-[10px] px-4 py-2 rounded-lg border border-white/10 uppercase tracking-widest shadow-xl z-[110] hover:bg-slate-800">Inherit Pile</button>
+           <button 
+            onClick={pickUpPile} 
+            className="absolute -top-5 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-[0_10px_30px_rgba(225,29,72,0.3)] z-[310] transition-all hover:-translate-y-0.5"
+           >
+            Inherit Pile
+           </button>
         )}
         
-        <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar py-2">
-           <div className="flex items-center gap-1 px-8 min-w-max">
+        {/* Hand Cards */}
+        <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar scroll-smooth">
+           <div className="flex items-center gap-0.5 px-10 min-w-max pb-2">
               {players[0]?.hand.map((card, i) => {
-                // Adaptive overlap to handle large hands without stretching or breaking
+                const isSelected = selectedCardIds.includes(card.id);
+                // Dynamic overlap logic
                 const overlap = players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
+                
                 return (
                   <div 
                     key={card.id} 
                     className="transition-all duration-300 relative" 
                     style={{ 
                       marginLeft: i === 0 ? '0' : overlap, 
-                      zIndex: i + (selectedCardIds.includes(card.id) ? 100 : 0), 
-                      transform: selectedCardIds.includes(card.id) ? 'translateY(-1.5rem) scale(1.05)' : 'translateY(0)' 
+                      zIndex: i + (isSelected ? 100 : 0), 
+                      transform: isSelected ? 'translateY(-2rem) scale(1.05)' : 'translateY(0)' 
                     }}
                   >
                     <PlayingCard 
                       {...card} 
-                      selected={selectedCardIds.includes(card.id)} 
+                      selected={isSelected} 
                       highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
                       onClick={() => {
-                        if (phase === 'SETUP') setSelectedCardIds(prev => prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev);
-                        else if (phase === 'PLAYING' && turnIndex === 0) playCards(players[0].hand.filter(c => c.rank === card.rank).map(c => c.id), 'HAND');
+                        if (phase === 'SETUP') {
+                          setSelectedCardIds(prev => prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev);
+                        } else if (phase === 'PLAYING' && turnIndex === 0) {
+                          playCards(players[0].hand.filter(c => c.rank === card.rank).map(c => c.id), 'HAND');
+                        }
                       }} 
                     />
                   </div>
@@ -396,14 +418,14 @@ export const Game: React.FC<{
         </div>
       </footer>
 
-      {/* Victory Modal */}
+      {/* Victory Overlay */}
       {winner && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6">
-           <div className="bg-slate-900 border border-amber-500/30 p-10 rounded-[2rem] text-center shadow-[0_0_50px_rgba(245,158,11,0.2)] max-w-sm w-full animate-in zoom-in duration-300">
-              <Trophy size={48} className="text-amber-500 mx-auto mb-6" />
-              <h2 className="text-3xl font-playfair font-black text-white mb-2 uppercase">Crown Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-8">{winner} has ascended the throne</p>
-              <button onClick={onExit} className="w-full bg-amber-500 text-slate-900 font-black py-4 rounded-xl hover:bg-amber-400 transition-all uppercase tracking-widest text-xs shadow-lg">Return to Lobby</button>
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6 animate-in fade-in duration-500">
+           <div className="bg-slate-900 border border-amber-500/30 p-12 rounded-[2.5rem] text-center shadow-[0_0_80px_rgba(245,158,11,0.2)] max-w-sm w-full animate-in zoom-in-95 duration-500">
+              <Trophy size={56} className="text-amber-500 mx-auto mb-8 animate-bounce" />
+              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase tracking-tight">Crown Claimed</h2>
+              <p className="text-amber-400 font-black uppercase tracking-[0.3em] text-xs mb-10">{winner} has ascended</p>
+              <button onClick={onExit} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-[0.2em] text-xs shadow-xl hover:scale-[1.02] active:scale-95">Return to Lobby</button>
            </div>
         </div>
       )}
