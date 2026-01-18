@@ -26,6 +26,23 @@ export interface Web3Response {
 }
 
 /**
+ * Ultra-safe property extractor to prevent "Cannot read properties of undefined"
+ */
+const safeGet = (obj: any, path: string[]): any => {
+  let current = obj;
+  for (const key of path) {
+    if (current === null || current === undefined) return undefined;
+    try {
+      // Direct access inside try-catch to handle potential getter failures
+      current = current[key];
+    } catch (e) {
+      return undefined;
+    }
+  }
+  return current;
+};
+
+/**
  * Utility to get the most reliable provider available.
  */
 const getProviderSource = () => {
@@ -33,7 +50,7 @@ const getProviderSource = () => {
   
   try {
     // 1. Farcaster Frame context
-    const frameProvider = (sdk as any)?.wallet?.ethProvider;
+    const frameProvider = safeGet(sdk, ['wallet', 'ethProvider']);
     if (frameProvider && typeof frameProvider.request === 'function') {
       return frameProvider;
     }
@@ -59,21 +76,15 @@ const getProviderSource = () => {
  * Safely extracts error code from various wallet error formats.
  */
 const getErrorCode = (error: any): number | null => {
-  if (!error || typeof error !== 'object') return null;
-  
-  // Try standard code
+  if (!error) return null;
   if (typeof error.code === 'number') return error.code;
   
-  // Try nested data code (MetaMask style)
-  if (error.data && typeof error.data === 'object' && typeof error.data.code === 'number') return error.data.code;
-  
-  // Try nested error code
-  if (error.error && typeof error.error === 'object' && typeof error.error.code === 'number') return error.error.code;
+  // Try common nested patterns safely
+  const nestedCode = safeGet(error, ['data', 'code']) ?? 
+                     safeGet(error, ['error', 'code']) ?? 
+                     safeGet(error, ['info', 'error', 'code']);
 
-  // Try Ethers v6 style info
-  if (error.info && error.info.error && typeof error.info.error.code === 'number') return error.info.error.code;
-
-  return null;
+  return typeof nestedCode === 'number' ? nestedCode : null;
 };
 
 /**
@@ -82,8 +93,21 @@ const getErrorCode = (error: any): number | null => {
 const getErrorMessage = (error: any): string => {
   if (!error) return "Unknown error";
   if (typeof error === 'string') return error;
-  if (error.message && typeof error.message === 'string') return error.message;
-  return "An unexpected error occurred during the wallet operation.";
+  
+  // Try common message patterns safely
+  const message = safeGet(error, ['message']) ?? 
+                  safeGet(error, ['error', 'message']) ?? 
+                  safeGet(error, ['info', 'error', 'message']) ?? 
+                  safeGet(error, ['data', 'message']);
+
+  if (typeof message === 'string') return message;
+  
+  // Fallback to string representation if nothing found
+  try {
+    return String(error);
+  } catch (e) {
+    return "An unexpected error occurred during the wallet operation.";
+  }
 };
 
 export const web3Service = {
@@ -110,10 +134,11 @@ export const web3Service = {
       });
     } catch (switchError: any) {
       const errorCode = getErrorCode(switchError);
-      const errorMsg = getErrorMessage(switchError).toLowerCase();
+      const fullErrorMsg = getErrorMessage(switchError);
+      const errorMsg = fullErrorMsg.toLowerCase();
       
       // If network is missing, attempt to add it (4902 is "missing chain")
-      if (errorCode === 4902 || errorMsg.includes('unrecognized') || errorMsg.includes('not found')) {
+      if (errorCode === 4902 || errorMsg.includes('unrecognized') || errorMsg.includes('not found') || errorMsg.includes('4902')) {
         try {
           await ethereum.request({
             method: 'wallet_addEthereumChain',
@@ -132,12 +157,12 @@ export const web3Service = {
             ],
           });
         } catch (addError: any) {
-          throw new Error(getErrorMessage(addError) || 'Failed to add Somnia Testnet.');
+          throw new Error(getErrorMessage(addError) || 'Failed to add Somnia Testnet to your wallet.');
         }
-      } else if (errorCode === 4001) {
+      } else if (errorCode === 4001 || errorMsg.includes('user rejected')) {
         throw new Error('Connection to Somnia was rejected by the user.');
       } else {
-        throw new Error(getErrorMessage(switchError) || 'Could not switch to Somnia Testnet.');
+        throw new Error(fullErrorMsg || 'Could not switch to Somnia Testnet.');
       }
     }
   },
@@ -146,16 +171,22 @@ export const web3Service = {
     try {
       const ethereum = getProviderSource();
       if (!ethereum) {
-        return { success: false, message: "No Web3 wallet detected. Please open in Farcaster or a Web3 browser." };
+        return { success: false, message: "No Web3 wallet detected. Please use a Web3 browser or Farcaster." };
       }
       
       const ethers = (window as any).ethers;
       if (!ethers || typeof ethers.BrowserProvider !== 'function') {
-          return { success: false, message: "Web3 engine (Ethers) is not loaded. Please refresh the page." };
+          return { success: false, message: "Web3 engine failed to load. Please check your internet and refresh." };
       }
 
       // 1. Request access
-      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      let accounts;
+      try {
+        accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      } catch (reqError: any) {
+        return { success: false, message: getErrorMessage(reqError) };
+      }
+
       if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
         return { success: false, message: "No wallet accounts found." };
       }
