@@ -268,114 +268,108 @@ export const Game: React.FC<{
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
       
-      {/* 1. HEADER (Fixed Height) */}
-      <header className="h-8 md:h-10 flex items-center justify-between px-4 bg-slate-950/98 backdrop-blur-xl border-b border-white/5 z-[100] shrink-0">
+      {/* 1. Header (Fixed Height) */}
+      <header className="h-10 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-50 shrink-0">
         <div className="flex items-center gap-2">
-          <button onClick={onExit} className="p-1 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400 transition-all"><X size={14} /></button>
+          <button onClick={onExit} className="p-1 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400"><X size={18} /></button>
           <div className="h-4 w-px bg-white/10"></div>
-          <h1 className="text-[10px] md:text-xs font-playfair font-black text-amber-500 tracking-tighter flex items-center gap-1 leading-none uppercase"><Zap size={10} className="fill-amber-500" /> Palace Rulers</h1>
+          <h1 className="text-xs font-playfair font-black text-amber-500 tracking-tighter uppercase"><Zap size={12} className="inline mr-1 fill-amber-500" /> Palace Rulers</h1>
         </div>
-        <div className="flex items-center gap-3">
-           <button onClick={() => setIsMuted(!isMuted)} className="p-1.5 text-slate-400 hover:text-white transition-all">{isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
-        </div>
+        <button onClick={() => setIsMuted(!isMuted)} className="p-1.5 text-slate-400 hover:text-white transition-all">{isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
       </header>
 
-      {/* 2. OPPONENTS ROW (Fixed Height) */}
-      <div className="h-10 md:h-12 flex items-center justify-center gap-4 shrink-0 pointer-events-none px-2 bg-slate-950/20 border-b border-white/5">
+      {/* 2. Opponents Row */}
+      <div className="h-12 flex items-center justify-center gap-6 shrink-0 pointer-events-none bg-slate-950/20 border-b border-white/5">
         {players.filter(p => !p.isHuman).map(opp => (
-          <div key={opp.id} className={`flex items-center gap-1.5 transition-all ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30 grayscale'}`}>
-             <div className={`w-6 h-6 rounded bg-slate-800 border ${turnIndex === opp.id ? 'border-amber-500 shadow-lg' : 'border-slate-700'} flex items-center justify-center`}>
-               <Bot size={12} className={turnIndex === opp.id ? 'text-amber-500' : 'text-slate-600'} />
+          <div key={opp.id} className={`flex items-center gap-2 transition-all ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
+             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${turnIndex === opp.id ? 'border-amber-500 shadow-lg' : 'border-slate-700'}`}>
+               <Bot size={16} className={turnIndex === opp.id ? 'text-amber-500' : 'text-slate-600'} />
              </div>
-             <p className="text-[6px] md:text-[8px] font-black uppercase text-white tracking-widest truncate max-w-[60px]">{opp.name} ({opp.hand.length})</p>
+             <p className="text-[10px] font-black uppercase text-white">{opp.name} ({opp.hand.length})</p>
           </div>
         ))}
       </div>
 
-      {/* 3. MAIN BATTLEFIELD (Flexible Grow Space) */}
-      <div className="flex-1 flex flex-col items-center justify-between min-h-0 overflow-hidden relative">
+      {/* 3. Main Battlefield Area (Scrollable/Flex if needed) */}
+      <div className="flex-1 flex flex-col items-center justify-around min-h-0 overflow-hidden px-4 py-2 relative">
         
-        {/* Central Pile Area */}
-        <div className="flex-1 flex items-center justify-center w-full relative min-h-[100px] py-4">
-          <div className="relative w-32 h-32 md:w-48 md:h-48 flex items-center justify-center z-10">
-            {pile.length === 0 ? (
-              <div className="w-14 h-20 md:w-20 md:h-28 border-2 border-dashed border-white/5 rounded-lg flex items-center justify-center flex-col gap-1 text-white/5">
-                <Swords size={16} />
-                <span className="text-[5px] font-black uppercase opacity-20 tracking-widest">Pile</span>
+        {/* Central Pile Container */}
+        <div className="w-full flex-1 flex items-center justify-center relative min-h-0">
+          <div className="relative w-full h-full flex items-center justify-center max-h-[300px]">
+             {pile.length === 0 ? (
+                <div className="w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-lg flex items-center justify-center text-white/5">
+                  <Swords size={24} />
+                </div>
+             ) : (
+                pile.slice(-5).map((card, i) => (
+                  <div key={card.id} className="absolute" style={{ transform: `rotate(${pileRotations[pile.length - 1 - (pile.slice(-5).length - 1 - i)]}deg)` }}>
+                    <PlayingCard {...card} dimmed={turnIndex !== 0} />
+                  </div>
+                ))
+             )}
+             {activeConstraint === 'LOWER_THAN_7' && (
+               <div className="absolute top-0 bg-emerald-500 text-slate-950 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest animate-bounce z-50 shadow-xl">MUST BE ≤ 7</div>
+             )}
+          </div>
+        </div>
+
+        {/* Central Action Area for Setup */}
+        {phase === 'SETUP' && (
+          <div className="my-2 flex flex-col items-center gap-2 z-[60] animate-in fade-in slide-in-from-bottom-2">
+            <button 
+              onClick={confirmSetup} 
+              disabled={selectedCardIds.length !== 3} 
+              className={`px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110' : 'bg-slate-800 text-slate-600 opacity-60'}`}
+            >
+              <ShieldCheck size={16} /> Confirm Stronghold ({selectedCardIds.length}/3)
+            </button>
+            <p className="text-[8px] text-amber-500 font-bold uppercase tracking-widest">Select 3 Defense Cards from your hand</p>
+          </div>
+        )}
+
+        {/* Player Stronghold Layer */}
+        <div className="w-full flex justify-center items-center py-2 shrink-0">
+          <div className="flex gap-4 p-2 bg-slate-950/40 rounded-2xl border border-white/5 shadow-inner">
+            {players[0]?.hiddenCards.map((c, i) => (
+              <div key={`stronghold-${i}`} className="relative">
+                 <PlayingCard faceDown className="scale-90 md:scale-100" />
+                 {players[0].faceUpCards[i] && (
+                   <div className="absolute -top-3 -right-3 z-10 scale-90 md:scale-100">
+                      <PlayingCard 
+                        {...players[0].faceUpCards[i]} 
+                        onClick={() => { if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) playCards([players[0].faceUpCards[i].id], 'FACEUP'); }} 
+                      />
+                   </div>
+                 )}
+                 {turnIndex === 0 && players[0].hand.length === 0 && players[0].faceUpCards.length === 0 && i === 0 && (
+                   <button onClick={() => playCards([players[0].hiddenCards[0].id], 'HIDDEN')} className="absolute inset-0 bg-amber-500/20 rounded-lg border-2 border-amber-500 animate-pulse flex items-center justify-center z-50">
+                     <Eye size={24} className="text-white" />
+                   </button>
+                 )}
               </div>
-            ) : (
-              pile.slice(-5).map((card, i) => (
-                <div key={card.id} className="absolute inset-0 flex items-center justify-center pointer-events-auto" style={{ transform: `rotate(${pileRotations[pile.length - 1 - (pile.slice(-5).length - 1 - i)]}deg)` }}>
-                  <PlayingCard {...card} dimmed={turnIndex !== 0} />
-                </div>
-              ))
-            )}
-            {activeConstraint === 'LOWER_THAN_7' && (
-               <div className="absolute -bottom-2 bg-emerald-500 text-slate-900 px-2 py-0.5 rounded-full text-[6px] font-black uppercase tracking-widest animate-bounce shadow-xl z-50">MUST BE ≤ 7</div>
-            )}
+            ))}
           </div>
         </div>
 
-        {/* Tactical Defense Row (Fixed in the center-bottom of battlefield) */}
-        <div className="w-full flex flex-col items-center gap-2 pb-2 shrink-0">
-          
-          {/* Action Button: Strictly locked between pile and stronghold */}
-          {phase === 'SETUP' && (
-            <div className="flex flex-col items-center gap-1 z-50 animate-in slide-in-from-bottom-1">
-              <button 
-                onClick={confirmSetup} 
-                disabled={selectedCardIds.length !== 3} 
-                className={`px-5 py-2 rounded-full font-black text-[8px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl border ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-600 opacity-60 border-white/5'}`}
-              >
-                <ShieldCheck size={12} /> CONFIRM STRONGHOLD ({selectedCardIds.length}/3)
-              </button>
-              <p className="text-[6px] text-amber-500/80 font-black uppercase tracking-[0.2em]">Pick 3 Strategic Defenses</p>
-            </div>
-          )}
-
-          {/* Stronghold Container */}
-          <div className="h-16 md:h-24 flex items-center justify-center w-full px-2">
-            <div className="flex justify-center gap-1.5 md:gap-4 pointer-events-auto bg-slate-900/40 p-1.5 rounded-xl border border-white/5 shadow-inner">
-              {players[0]?.hiddenCards.map((c, i) => (
-                <div key={`def-${i}`} className="relative">
-                  <PlayingCard faceDown className="shadow-2xl scale-90 md:scale-100" />
-                  {players[0].faceUpCards[i] && (
-                    <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 scale-90 md:scale-100 z-10">
-                        <PlayingCard 
-                          {...players[0].faceUpCards[i]} 
-                          onClick={() => { if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) playCards([players[0].faceUpCards[i].id], 'FACEUP'); }} 
-                        />
-                    </div>
-                  )}
-                  {turnIndex === 0 && players[0].hand.length === 0 && players[0].faceUpCards.length === 0 && i === 0 && (
-                      <button onClick={() => playCards([players[0].hiddenCards[0].id], 'HIDDEN')} className="absolute inset-0 bg-amber-500/30 rounded-lg border border-amber-500 animate-pulse flex items-center justify-center z-50 shadow-inner"><Eye size={16} className="text-white" /></button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Small Log Overlay (Absolute in battlefield to save space) */}
-        <div className="absolute bottom-2 right-2 w-28 md:w-36 max-h-16 overflow-y-auto no-scrollbar pointer-events-none flex flex-col gap-0.5 z-[20]">
-           {logs.slice(-3).map((log, i) => (
-             <div key={i} className="bg-slate-950/80 p-1 rounded border border-white/5 text-[5px] md:text-[7px] font-black text-slate-400 uppercase tracking-widest">{log}</div>
+        {/* Logs Banner (Overlay-like) */}
+        <div className="absolute top-4 right-4 w-40 max-h-24 overflow-y-auto no-scrollbar pointer-events-none hidden md:flex flex-col gap-1 z-20">
+           {logs.slice(-4).map((log, i) => (
+             <div key={i} className="bg-slate-950/80 p-2 rounded-lg border border-white/5 text-[8px] font-bold text-slate-400 uppercase tracking-widest shadow-lg">{log}</div>
            ))}
         </div>
       </div>
 
-      {/* 4. PLAYER HAND (Fixed Bottom Height) */}
-      <footer className="h-20 md:h-28 bg-slate-950/98 border-t border-white/10 relative flex items-center justify-center z-[110] shrink-0 overflow-visible px-4">
-        {/* Inherit Button: Only visible when turn is 0 */}
+      {/* 4. Player Hand (Fixed Footer) */}
+      <footer className="h-28 md:h-36 bg-slate-950 border-t border-white/10 p-2 relative flex items-center justify-center shrink-0 z-[100] overflow-visible">
         {phase === 'PLAYING' && turnIndex === 0 && (
-          <button onClick={pickUpPile} className="absolute -top-3 left-2 bg-slate-900 text-white font-black text-[6px] px-2 py-1 rounded border border-white/10 uppercase tracking-widest shadow-xl z-50 active:scale-95">INHERIT PILE</button>
+           <button onClick={pickUpPile} className="absolute -top-4 left-4 bg-slate-900 text-white font-black text-[10px] px-4 py-2 rounded-lg border border-white/10 uppercase tracking-widest shadow-xl z-[110] hover:bg-slate-800">Inherit Pile</button>
         )}
-
-        <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar py-1">
-           <div className="flex items-center gap-0.5 min-w-max px-8">
+        
+        <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar py-2">
+           <div className="flex items-center gap-1 px-8 min-w-max">
               {players[0]?.hand.map((card, i) => {
-                // Adaptive overlap: Increase overlap as hand grows
-                const overlap = players[0].hand.length > 8 ? '-1.8rem' : '-1.5rem';
+                // Adaptive overlap to handle large hands without stretching or breaking
+                const overlap = players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
                 return (
                   <div 
                     key={card.id} 
@@ -383,7 +377,7 @@ export const Game: React.FC<{
                     style={{ 
                       marginLeft: i === 0 ? '0' : overlap, 
                       zIndex: i + (selectedCardIds.includes(card.id) ? 100 : 0), 
-                      transform: selectedCardIds.includes(card.id) ? 'translateY(-0.8rem) scale(1.05)' : 'translateY(0)' 
+                      transform: selectedCardIds.includes(card.id) ? 'translateY(-1.5rem) scale(1.05)' : 'translateY(0)' 
                     }}
                   >
                     <PlayingCard 
@@ -404,12 +398,12 @@ export const Game: React.FC<{
 
       {/* Victory Modal */}
       {winner && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[500] p-6">
-           <div className="bg-slate-900 border border-amber-500/30 p-6 rounded-2xl text-center shadow-2xl max-w-xs w-full animate-in zoom-in duration-300">
-              <Trophy size={32} className="text-amber-500 mx-auto mb-4 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
-              <h2 className="text-xl font-playfair font-black text-white mb-1 uppercase tracking-tighter leading-none">Crown Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-[0.2em] text-[7px] mb-6">{winner} ascends the throne</p>
-              <button onClick={onExit} className="w-full bg-amber-500 text-slate-950 font-black py-2 rounded-lg hover:bg-amber-400 transition-all uppercase tracking-widest text-[8px] shadow-lg">Return to Kingdom</button>
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6">
+           <div className="bg-slate-900 border border-amber-500/30 p-10 rounded-[2rem] text-center shadow-[0_0_50px_rgba(245,158,11,0.2)] max-w-sm w-full animate-in zoom-in duration-300">
+              <Trophy size={48} className="text-amber-500 mx-auto mb-6" />
+              <h2 className="text-3xl font-playfair font-black text-white mb-2 uppercase">Crown Claimed</h2>
+              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-8">{winner} has ascended the throne</p>
+              <button onClick={onExit} className="w-full bg-amber-500 text-slate-900 font-black py-4 rounded-xl hover:bg-amber-400 transition-all uppercase tracking-widest text-xs shadow-lg">Return to Lobby</button>
            </div>
         </div>
       )}
