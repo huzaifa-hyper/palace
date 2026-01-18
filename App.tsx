@@ -50,9 +50,12 @@ export default function App() {
     };
     initSdk();
 
-    // Protocol check for production
-    if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-      setProtocolError("Wallet connection requires HTTPS or localhost.");
+    // Production Security Check
+    if (typeof window !== 'undefined' && 
+        window.location.protocol !== 'https:' && 
+        window.location.hostname !== 'localhost' && 
+        window.location.hostname !== '127.0.0.1') {
+      setProtocolError("Secure context (HTTPS) required for wallet connection.");
     }
   }, []);
 
@@ -64,13 +67,14 @@ export default function App() {
     }
   }, []);
 
-  // Auto-switch network if mismatched and connected
+  // Auto-switch network if mismatched
   useEffect(() => {
-    if (address && isMismatched && switchChain) {
-      switchChain(SOMNIA_CHAIN_ID).catch(console.error);
+    if (address && isMismatched && switchChain && hasMounted) {
+      switchChain(SOMNIA_CHAIN_ID).catch(e => console.error("Switch chain error", e));
     }
-  }, [address, isMismatched, switchChain]);
+  }, [address, isMismatched, switchChain, hasMounted]);
 
+  // Prevent SSR/Hydration issues
   if (!hasMounted) return null;
 
   const handleCreateProfile = (e: React.FormEvent) => {
@@ -87,9 +91,7 @@ export default function App() {
   };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
-    // Enforcement: Must be connected, on correct chain, and have minimum balance
     if (!address || isMismatched || !isEligible) return;
-    
     p2pService.destroy(); 
     setGameConfig({ mode, playerCount });
     setOfflineSetupMode(null);
@@ -106,7 +108,7 @@ export default function App() {
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center p-6 z-[200] bg-felt">
         <div className="bg-red-900/20 border border-red-500/50 p-8 rounded-3xl max-w-md text-center backdrop-blur-xl">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-2">Security Warning</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Secure Connection Required</h2>
           <p className="text-red-200">{protocolError}</p>
         </div>
       </div>
@@ -133,8 +135,22 @@ export default function App() {
            <h1 className="text-3xl font-playfair font-bold text-amber-100 mb-2">Identify Yourself</h1>
            <p className="text-slate-400 mb-8 font-light">Enter your name to enter the Palace records.</p>
            <form onSubmit={handleCreateProfile} className="space-y-6">
-             <input type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your Name" className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-4 text-center text-lg text-amber-100 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 outline-none transition-all" maxLength={12} />
-             <button type="submit" disabled={!tempName.trim()} className="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-900 font-bold py-4 rounded-xl shadow-lg transition-all disabled:opacity-50">Claim Throne</button>
+             <input 
+                type="text" 
+                autoFocus
+                value={tempName} 
+                onChange={(e) => setTempName(e.target.value)} 
+                placeholder="Your Name" 
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-4 text-center text-lg text-amber-100 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 outline-none transition-all" 
+                maxLength={12} 
+             />
+             <button 
+                type="submit" 
+                disabled={!tempName.trim()} 
+                className="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-900 font-bold py-4 rounded-xl shadow-lg transition-all disabled:opacity-50"
+             >
+                Claim Throne
+             </button>
            </form>
         </div>
       </div>
@@ -147,22 +163,22 @@ export default function App() {
         {activeTab === 'lobby' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
              {/* Wallet & Balance Status Bar */}
-             <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+             <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl">
                  <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-purple-900/30 flex items-center justify-center border border-purple-500/30">
                       <Wallet className="w-5 h-5 text-purple-400" />
                     </div>
                     <div>
                        <h3 className="font-bold text-slate-200 text-sm">Somnia Testnet Guard</h3>
-                       <div className="text-xs text-slate-400">Authorized Access Required</div>
+                       <div className="text-xs text-slate-400">Authorized by Thirdweb SDK</div>
                     </div>
                  </div>
                  
                  <div className="flex items-center gap-4">
                     {connectionStatus === "connecting" || connectionStatus === "unknown" ? (
-                      <div className="flex items-center gap-2 text-slate-400 text-sm">
-                         <Loader2 className="w-4 h-4 animate-spin" />
-                         Syncing...
+                      <div className="flex items-center gap-2 text-slate-400 text-sm bg-slate-900 px-4 py-2 rounded-xl">
+                         <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                         Syncing Chain...
                       </div>
                     ) : address ? (
                        <div className="flex items-center gap-4 bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-600">
@@ -176,14 +192,14 @@ export default function App() {
                            <ConnectWallet 
                              theme="dark" 
                              btnTitle="Wallet"
-                             className="!bg-transparent !border-0 !p-0 !min-w-0 !h-auto !text-slate-500 hover:!text-white"
+                             className="!bg-transparent !border-0 !p-0 !min-w-0 !h-auto !text-slate-500 hover:!text-white !font-bold"
                            />
                        </div>
                     ) : (
                        <ConnectWallet 
                          theme="dark" 
                          btnTitle="Connect Wallet" 
-                         className="!bg-purple-600 hover:!bg-purple-500 !text-white !px-6 !py-2 !rounded-lg !font-bold !text-sm !transition-colors !shadow-lg"
+                         className="!bg-purple-600 hover:!bg-purple-500 !text-white !px-8 !py-2.5 !rounded-xl !font-bold !text-sm !transition-all !shadow-xl !border-0 active:!scale-95"
                        />
                     )}
                  </div>
@@ -191,25 +207,25 @@ export default function App() {
 
              {/* Network Mismatch Warning */}
              {address && isMismatched && (
-               <div className="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl flex items-center justify-between gap-3 animate-pulse">
+               <div className="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl flex items-center justify-between gap-3 animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.1)]">
                   <div className="flex items-center gap-3">
                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                     <span className="text-sm text-amber-200 font-bold">Wrong Network: The Palace resides on Somnia Testnet</span>
+                     <span className="text-sm text-amber-200 font-bold">Wrong Network: Switch to Somnia Testnet (50312)</span>
                   </div>
-                  <button onClick={() => switchChain?.(SOMNIA_CHAIN_ID)} className="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg">Switch Network</button>
+                  <button onClick={() => switchChain?.(SOMNIA_CHAIN_ID)} className="bg-amber-600 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-lg hover:bg-amber-500 transition-colors">Switch Network</button>
                </div>
              )}
 
              {/* Insufficient Balance Message */}
              {address && !isEligible && !isBalanceLoading && !isMismatched && (
-                <div className="bg-red-500/10 border border-red-500/50 p-6 rounded-2xl flex flex-col items-center gap-4 text-center">
-                   <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center"><Lock size={32} className="text-red-500" /></div>
+                <div className="bg-red-500/10 border border-red-500/50 p-8 rounded-3xl flex flex-col items-center gap-4 text-center shadow-2xl backdrop-blur-sm">
+                   <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30"><Lock size={36} className="text-red-500" /></div>
                    <div>
-                      <h3 className="text-xl font-bold text-white mb-1">Minimum 1 STT required to play</h3>
-                      <p className="text-slate-400 max-w-sm text-sm">Your balance: <span className="text-red-400 font-bold">{parseFloat(balance).toFixed(4)} STT</span>. Please visit the faucet to replenish your treasury.</p>
+                      <h3 className="text-2xl font-bold text-white mb-2">Insufficient Treasury Balance</h3>
+                      <p className="text-slate-400 max-w-sm text-sm">The Palace guards require a minimum of <span className="text-white font-bold">1.00 STT</span> to verify your strategy maneuvers. Your current standing: <span className="text-red-400 font-bold">{parseFloat(balance).toFixed(4)} STT</span>.</p>
                    </div>
-                   <a href="https://faucet.somnia.network" target="_blank" rel="noopener noreferrer" className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded-full font-bold shadow-lg transition-all flex items-center gap-2">
-                     Visit Faucet <Globe className="w-4 h-4" />
+                   <a href="https://faucet.somnia.network" target="_blank" rel="noopener noreferrer" className="bg-red-600 hover:bg-red-500 text-white px-10 py-3.5 rounded-full font-bold shadow-lg transition-all flex items-center gap-3 group">
+                     Visit Official Faucet <Globe className="w-5 h-5 group-hover:rotate-12 transition-transform" />
                    </a>
                 </div>
              )}
@@ -217,25 +233,25 @@ export default function App() {
              {/* Game Modes Grid */}
              <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                   <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Smartphone className="w-4 h-4" /> Practice Grounds</div>
+                   <div className="flex items-center gap-2 text-slate-500 uppercase tracking-widest text-[10px] font-black"><Smartphone className="w-3.5 h-3.5" /> Practice Grounds</div>
                    <div className="relative">
                      {offlineSetupMode === 'VS_BOT' ? (
-                       <div className="bg-slate-800/90 border border-emerald-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
-                          <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-emerald-400 flex items-center gap-2"><Bot size={18}/> Bot Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
-                          <div className="grid grid-cols-3 gap-3">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-700 hover:bg-emerald-600 py-3 rounded-xl font-bold transition-colors">{num} Players</button>))}</div>
+                       <div className="bg-slate-800/95 border border-emerald-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95 backdrop-blur-lg">
+                          <div className="flex justify-between items-center mb-6"><h3 className="font-bold text-emerald-400 flex items-center gap-2"><Bot size={18}/> Choose Player Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1.5 hover:bg-slate-700 rounded-full transition-colors"><X size={18}/></button></div>
+                          <div className="grid grid-cols-3 gap-4">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-700 hover:bg-emerald-600 py-4 rounded-2xl font-bold transition-all shadow-md active:scale-95">{num} Players</button>))}</div>
                        </div>
                      ) : (
                        <button 
                         disabled={!address || !isEligible || isMismatched}
                         onClick={() => setOfflineSetupMode('VS_BOT')} 
-                        className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-6 rounded-3xl text-left transition-all hover:scale-[1.02] shadow-xl relative overflow-hidden disabled:opacity-50"
+                        className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-8 rounded-[2rem] text-left transition-all hover:scale-[1.01] hover:shadow-2xl relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                        >
-                          <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity"><Bot className="w-24 h-24 text-white" /></div>
-                          {(!address || !isEligible || isMismatched) && <div className="absolute top-4 right-4 bg-slate-900/80 p-2 rounded-full z-20"><Lock size={20} className="text-slate-500" /></div>}
+                          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-32 h-32 text-white" /></div>
+                          {(!address || !isEligible || isMismatched) && <div className="absolute top-6 right-6 bg-slate-950/80 p-3 rounded-full z-20 shadow-lg border border-slate-700"><Lock size={20} className="text-slate-500" /></div>}
                           <div className="relative z-10">
-                             <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4"><Bot className="w-6 h-6 text-emerald-400" /></div>
-                             <h3 className="text-xl font-bold text-white mb-2">VS Palace Bots</h3>
-                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Hone your strategy against AI opponents in the training pits.</p>
+                             <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-6 border border-emerald-500/20"><Bot className="w-7 h-7 text-emerald-400" /></div>
+                             <h3 className="text-2xl font-bold text-white mb-2 font-playfair">VS Palace Bots</h3>
+                             <p className="text-slate-400 text-sm leading-relaxed max-w-[85%] font-light">Polish your tactics against adaptive AI rulers in the training pits of Somnia.</p>
                           </div>
                        </button>
                      )}
@@ -243,22 +259,22 @@ export default function App() {
 
                    <div className="relative">
                      {offlineSetupMode === 'PASS_AND_PLAY' ? (
-                       <div className="bg-slate-800/90 border border-purple-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95">
-                          <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-purple-400 flex items-center gap-2"><Smartphone size={18}/> Player Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1 hover:bg-slate-700 rounded-full"><X size={16}/></button></div>
-                          <div className="grid grid-cols-3 gap-3">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-700 hover:bg-purple-600 py-3 rounded-xl font-bold transition-colors">{num} Players</button>))}</div>
+                       <div className="bg-slate-800/95 border border-purple-500/50 p-6 rounded-3xl animate-in fade-in zoom-in-95 backdrop-blur-lg">
+                          <div className="flex justify-between items-center mb-6"><h3 className="font-bold text-purple-400 flex items-center gap-2"><Smartphone size={18}/> Player Count</h3><button onClick={() => setOfflineSetupMode(null)} className="p-1.5 hover:bg-slate-700 rounded-full transition-colors"><X size={18}/></button></div>
+                          <div className="grid grid-cols-3 gap-4">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-700 hover:bg-purple-600 py-4 rounded-2xl font-bold transition-all shadow-md active:scale-95">{num} Players</button>))}</div>
                        </div>
                      ) : (
                        <button 
                         disabled={!address || !isEligible || isMismatched}
                         onClick={() => setOfflineSetupMode('PASS_AND_PLAY')} 
-                        className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-6 rounded-3xl text-left transition-all hover:scale-[1.02] shadow-xl relative overflow-hidden disabled:opacity-50"
+                        className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-8 rounded-[2rem] text-left transition-all hover:scale-[1.01] hover:shadow-2xl relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                        >
-                          <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity"><Users className="w-24 h-24 text-white" /></div>
-                          {(!address || !isEligible || isMismatched) && <div className="absolute top-4 right-4 bg-slate-900/80 p-2 rounded-full z-20"><Lock size={20} className="text-slate-500" /></div>}
+                          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 text-white" /></div>
+                          {(!address || !isEligible || isMismatched) && <div className="absolute top-6 right-6 bg-slate-950/80 p-3 rounded-full z-20 shadow-lg border border-slate-700"><Lock size={20} className="text-slate-500" /></div>}
                           <div className="relative z-10">
-                             <div className="w-12 h-12 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-4"><Smartphone className="w-6 h-6 text-purple-400" /></div>
-                             <h3 className="text-xl font-bold text-white mb-2">Local Duel</h3>
-                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Pass & Play with friends on a single device at the tavern.</p>
+                             <div className="w-14 h-14 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
+                             <h3 className="text-2xl font-bold text-white mb-2 font-playfair">Local Duel</h3>
+                             <p className="text-slate-400 text-sm leading-relaxed max-w-[85%] font-light">Share your device to settle disputes face-to-face in the Grand Hall.</p>
                           </div>
                        </button>
                      )}
@@ -266,12 +282,18 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                   <div className="flex items-center gap-2 text-slate-400 uppercase tracking-widest text-xs font-bold"><Globe className="w-4 h-4" /> Global Conquest</div>
-                   <div className="bg-slate-900/40 p-6 rounded-3xl border border-blue-500/20 relative overflow-hidden opacity-75">
-                      <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg uppercase">Coming Soon</span></div>
+                   <div className="flex items-center gap-2 text-slate-500 uppercase tracking-widest text-[10px] font-black"><Globe className="w-3.5 h-3.5" /> Global Conquest</div>
+                   <div className="bg-slate-900/40 p-8 rounded-[2rem] border border-blue-500/10 relative overflow-hidden opacity-80 backdrop-blur-sm h-full">
+                      <div className="absolute inset-0 bg-slate-950/70 z-20 flex flex-col items-center justify-center gap-4">
+                         <div className="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 animate-pulse"><Zap size={32} className="text-blue-400" /></div>
+                         <span className="bg-blue-600 text-white px-5 py-2 rounded-full text-xs font-black tracking-[0.2em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
+                      </div>
                       <div className="relative z-10">
-                         <div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center"><Zap className="w-5 h-5 text-blue-400" /></div><h3 className="text-lg font-bold text-white">Ranked Match</h3></div>
-                         <p className="text-xs text-slate-400">Competitive on-chain matchmaking for glory and STT rewards.</p>
+                         <div className="flex items-center gap-4 mb-4">
+                            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/10"><Zap className="w-7 h-7 text-blue-400" /></div>
+                            <h3 className="text-2xl font-bold text-white font-playfair">Ranked Matchmaking</h3>
+                         </div>
+                         <p className="text-sm text-slate-500 leading-relaxed font-light">Compete for on-chain glory and climb the decentralized leaderboard for exclusive seasonal rewards.</p>
                       </div>
                    </div>
                 </div>
@@ -283,24 +305,34 @@ export default function App() {
       </main>
 
       {/* Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-lg border-t border-white/5 px-6 py-4 z-50 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-xl border-t border-white/5 px-8 py-5 z-50 md:hidden shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
         <div className="flex justify-around items-center max-w-md mx-auto">
-          <button onClick={() => setActiveTab('lobby')} className={`flex flex-col items-center gap-1 ${activeTab === 'lobby' ? 'text-amber-500' : 'text-slate-500'}`}><Layers size={20} /><span className="text-[10px] font-bold uppercase tracking-wider">Lobby</span></button>
-          <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center gap-1 ${activeTab === 'rules' ? 'text-amber-500' : 'text-slate-500'}`}><BookOpen size={20} /><span className="text-[10px] font-bold uppercase tracking-wider">Rules</span></button>
-          <button onClick={() => setActiveTab('arbiter')} className={`flex flex-col items-center gap-1 ${activeTab === 'arbiter' ? 'text-amber-500' : 'text-slate-500'}`}><HelpCircle size={20} /><span className="text-[10px] font-bold uppercase tracking-wider">Arbiter</span></button>
+          <button onClick={() => setActiveTab('lobby')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'lobby' ? 'text-amber-500 scale-110' : 'text-slate-600 hover:text-slate-400'}`}><Layers size={22} /><span className="text-[10px] font-black uppercase tracking-widest">Lobby</span></button>
+          <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'rules' ? 'text-amber-500 scale-110' : 'text-slate-600 hover:text-slate-400'}`}><BookOpen size={22} /><span className="text-[10px] font-black uppercase tracking-widest">Rules</span></button>
+          <button onClick={() => setActiveTab('arbiter')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'arbiter' ? 'text-amber-500 scale-110' : 'text-slate-600 hover:text-slate-400'}`}><HelpCircle size={22} /><span className="text-[10px] font-black uppercase tracking-widest">Arbiter</span></button>
         </div>
       </nav>
 
       {/* Desktop Header */}
-      <header className="hidden md:flex items-center justify-between px-8 py-6 max-w-7xl mx-auto">
-         <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg rotate-3"><Crown className="text-slate-900 w-6 h-6" /></div>
-            <h1 className="text-2xl font-playfair font-bold text-white tracking-tight">Palace Rulers</h1>
+      <header className="hidden md:flex items-center justify-between px-12 py-8 max-w-7xl mx-auto">
+         <div className="flex items-center gap-4 group cursor-default">
+            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)] rotate-3 group-hover:rotate-6 transition-transform duration-300"><Crown className="text-slate-900 w-7 h-7" /></div>
+            <div>
+               <h1 className="text-3xl font-playfair font-black text-white tracking-tighter">Palace Rulers</h1>
+               <div className="h-0.5 w-0 group-hover:w-full bg-amber-500 transition-all duration-500"></div>
+            </div>
          </div>
-         <div className="flex gap-8">
-            <button onClick={() => setActiveTab('lobby')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'lobby' ? 'text-amber-500' : 'text-slate-400'}`}>Lobby</button>
-            <button onClick={() => setActiveTab('rules')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'rules' ? 'text-amber-500' : 'text-slate-400'}`}>Rules</button>
-            <button onClick={() => setActiveTab('arbiter')} className={`text-sm font-bold uppercase tracking-widest hover:text-amber-500 transition-colors ${activeTab === 'arbiter' ? 'text-amber-500' : 'text-slate-400'}`}>Arbiter</button>
+         <div className="flex gap-12">
+            {['lobby', 'rules', 'arbiter'].map((tab) => (
+               <button 
+                  key={tab}
+                  onClick={() => setActiveTab(tab as any)} 
+                  className={`text-xs font-black uppercase tracking-[0.3em] transition-all relative py-2 ${activeTab === tab ? 'text-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
+               >
+                  {tab}
+                  {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-px bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,1)]"></div>}
+               </button>
+            ))}
          </div>
       </header>
     </div>
