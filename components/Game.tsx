@@ -15,6 +15,7 @@ import {
   ShieldCheck, 
   History,
   Zap,
+  Play
 } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
@@ -108,8 +109,8 @@ export const Game: React.FC<{
       const p = { ...nextPlayers[playerIdx] };
       const needed = 3 - p.hand.length;
       if (needed > 0 && deck.length > 0) {
-        const drawn = deck.slice(0, needed);
-        setDeck(d => d.slice(needed));
+        const drawn = deck.slice(0, Math.min(needed, deck.length));
+        setDeck(d => d.slice(drawn.length));
         p.hand = [...p.hand, ...drawn];
       }
       nextPlayers[playerIdx] = p;
@@ -131,6 +132,14 @@ export const Game: React.FC<{
     if (!isLegalMove(cards[0])) {
       if (source === 'HIDDEN') {
         addLog(`${player.name} failed the Blind Siege! 🚫`);
+        // FIX: Remove failed blind card from hidden list immediately
+        setPlayers(prev => {
+          const next = [...prev];
+          const p = { ...next[pIdx] };
+          p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
+          next[pIdx] = p;
+          return next;
+        });
         setPile(prev => [...prev, ...cards]);
         setPileRotations(prev => [...prev, Math.random() * 20 - 10]);
         setTimeout(pickUpPile, 500);
@@ -169,11 +178,11 @@ export const Game: React.FC<{
       addLog(`${player.name} BURNED the pile! 🔥`);
       setPile([]);
       setPileRotations([]);
-      nextIdx = pIdx;
+      nextIdx = pIdx; // Player goes again
     } else if (rank === Rank.Two) {
       try { audioService.playReset(); } catch(e) {}
       addLog(`${player.name} reset the cycle. 🔄`);
-      nextIdx = pIdx;
+      nextIdx = pIdx; // Player goes again
     } else if (rank === Rank.Seven) {
       try { audioService.playCardPlace(); } catch(e) {}
       addLog(`Next must be ≤ 7! 📉`);
@@ -214,6 +223,7 @@ export const Game: React.FC<{
     setPileRotations([]);
     setActiveConstraint('NONE');
     setTurnIndex((turnIndex + 1) % playerCount);
+    setSelectedCardIds([]);
     try { audioService.playError(); } catch(e) {}
   };
 
@@ -238,6 +248,7 @@ export const Game: React.FC<{
       return next;
     });
     setPhase('PLAYING');
+    setSelectedCardIds([]);
     addLog("Battle Commenced!");
     try { audioService.playReset(); } catch(e) {}
   };
@@ -265,10 +276,38 @@ export const Game: React.FC<{
     return () => clearTimeout(timer);
   }, [turnIndex, phase, players, pile, activeConstraint, winner]);
 
+  const handleHandCardClick = (card: Card) => {
+    if (phase === 'SETUP') {
+      setSelectedCardIds(prev => 
+        prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev
+      );
+    } else if (phase === 'PLAYING' && turnIndex === 0) {
+      // Manual Selection Logic
+      setSelectedCardIds(prev => {
+        if (prev.includes(card.id)) return prev.filter(id => id !== card.id);
+        
+        // If selection already exists, ensure same rank
+        if (prev.length > 0) {
+          const firstSelected = players[0].hand.find(c => c.id === prev[0]);
+          if (firstSelected && firstSelected.rank === card.rank) {
+            return [...prev, card.id];
+          } else {
+            // Replace selection with new rank
+            return [card.id];
+          }
+        }
+        return [card.id];
+      });
+    }
+  };
+
+  const selectedCards = players[0]?.hand.filter(c => selectedCardIds.includes(c.id)) || [];
+  const isSelectionLegal = selectedCards.length > 0 && isLegalMove(selectedCards[0]);
+
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
       
-      {/* 1. Header (Anchored Top) */}
+      {/* 1. Header */}
       <header className="h-10 shrink-0 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-[200]">
         <div className="flex items-center gap-2">
           <button onClick={onExit} className="p-1.5 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"><X size={16} /></button>
@@ -282,7 +321,7 @@ export const Game: React.FC<{
         </button>
       </header>
 
-      {/* 2. Opponents (Fixed Height) */}
+      {/* 2. Opponents */}
       <div className="h-12 shrink-0 flex items-center justify-center gap-4 bg-slate-950/40 border-b border-white/5 pointer-events-none">
         {players.filter(p => !p.isHuman).map(opp => (
           <div key={opp.id} className={`flex items-center gap-2 transition-all duration-500 ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
@@ -294,10 +333,10 @@ export const Game: React.FC<{
         ))}
       </div>
 
-      {/* 3. Battlefield (Flexible Middle) */}
+      {/* 3. Battlefield */}
       <main className="flex-1 flex flex-col items-center justify-between min-h-0 overflow-hidden relative py-2">
         
-        {/* Central Pile Area */}
+        {/* Central Pile */}
         <div className="flex-1 w-full flex items-center justify-center relative min-h-0">
           <div className="relative w-40 h-40 md:w-56 md:h-56 flex items-center justify-center">
              {pile.length === 0 ? (
@@ -312,30 +351,39 @@ export const Game: React.FC<{
                 ))
              )}
              
-             {/* Power Card Constraints */}
              {activeConstraint === 'LOWER_THAN_7' && (
-               <div className="absolute -top-4 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce z-50 shadow-[0_10px_25px_rgba(16,185,129,0.4)]">
+               <div className="absolute -top-4 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce z-50 shadow-xl">
                  Must play ≤ 7
                </div>
              )}
           </div>
         </div>
 
-        {/* Action / Stronghold Area (Anchored Bottom of Battlefield) */}
+        {/* Action Area */}
         <div className="w-full shrink-0 flex flex-col items-center gap-3 pb-2">
           
-          {/* Setup CTA */}
           {phase === 'SETUP' && (
             <div className="flex flex-col items-center gap-1.5 z-[150] animate-in slide-in-from-bottom-2 duration-500">
               <button 
                 onClick={confirmSetup} 
                 disabled={selectedCardIds.length !== 3} 
-                className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400' : 'bg-slate-800 text-slate-500 opacity-50 cursor-not-allowed border-white/5'}`}
+                className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400' : 'bg-slate-800 text-slate-500 opacity-50 cursor-not-allowed'}`}
               >
                 <ShieldCheck size={14} /> Confirm Stronghold ({selectedCardIds.length}/3)
               </button>
-              <p className="text-[7px] text-amber-500/60 font-black uppercase tracking-[0.3em] bg-slate-950/40 px-3 py-1 rounded-full">Select 3 defense cards</p>
             </div>
+          )}
+
+          {phase === 'PLAYING' && turnIndex === 0 && selectedCardIds.length > 0 && (
+             <div className="flex flex-col items-center gap-1.5 z-[150] animate-in slide-in-from-bottom-2 duration-300">
+                <button 
+                  onClick={() => playCards(selectedCardIds, 'HAND')}
+                  disabled={!isSelectionLegal}
+                  className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center gap-2 shadow-2xl ${isSelectionLegal ? 'bg-emerald-500 text-slate-950 scale-110 border-emerald-400' : 'bg-rose-900/40 text-rose-300 cursor-not-allowed grayscale'}`}
+                >
+                  <Play size={14} /> {isSelectionLegal ? `Play ${selectedCardIds.length} Card${selectedCardIds.length > 1 ? 's' : ''}` : 'Illegal Move'}
+                </button>
+             </div>
           )}
 
           {/* Stronghold Cards */}
@@ -360,33 +408,23 @@ export const Game: React.FC<{
              ))}
           </div>
         </div>
-
-        {/* Floating Logs (Desktop only) */}
-        <div className="absolute top-4 right-4 w-44 max-h-32 overflow-hidden pointer-events-none hidden md:flex flex-col gap-1 z-20">
-           {logs.slice(-4).map((log, i) => (
-             <div key={i} className="bg-slate-950/80 p-2.5 rounded-xl border border-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-widest shadow-xl animate-in slide-in-from-right-4">{log}</div>
-           ))}
-        </div>
       </main>
 
-      {/* 4. Player Hand (Anchored Bottom) */}
+      {/* 4. Hand Footer */}
       <footer className="h-32 md:h-40 bg-slate-950 border-t border-white/10 p-2 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
-        {/* Context Button */}
         {phase === 'PLAYING' && turnIndex === 0 && (
            <button 
             onClick={pickUpPile} 
-            className="absolute -top-5 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-[0_10px_30px_rgba(225,29,72,0.3)] z-[310] transition-all hover:-translate-y-0.5"
+            className="absolute -top-5 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-xl z-[310] transition-all"
            >
             Inherit Pile
            </button>
         )}
         
-        {/* Hand Cards */}
         <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar scroll-smooth">
            <div className="flex items-center gap-0.5 px-10 min-w-max pb-2">
               {players[0]?.hand.map((card, i) => {
                 const isSelected = selectedCardIds.includes(card.id);
-                // Dynamic overlap logic
                 const overlap = players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
                 
                 return (
@@ -403,13 +441,7 @@ export const Game: React.FC<{
                       {...card} 
                       selected={isSelected} 
                       highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
-                      onClick={() => {
-                        if (phase === 'SETUP') {
-                          setSelectedCardIds(prev => prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev);
-                        } else if (phase === 'PLAYING' && turnIndex === 0) {
-                          playCards(players[0].hand.filter(c => c.rank === card.rank).map(c => c.id), 'HAND');
-                        }
-                      }} 
+                      onClick={() => handleHandCardClick(card)} 
                     />
                   </div>
                 );
@@ -420,12 +452,12 @@ export const Game: React.FC<{
 
       {/* Victory Overlay */}
       {winner && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6 animate-in fade-in duration-500">
-           <div className="bg-slate-900 border border-amber-500/30 p-12 rounded-[2.5rem] text-center shadow-[0_0_80px_rgba(245,158,11,0.2)] max-w-sm w-full animate-in zoom-in-95 duration-500">
-              <Trophy size={56} className="text-amber-500 mx-auto mb-8 animate-bounce" />
-              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase tracking-tight">Crown Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-[0.3em] text-xs mb-10">{winner} has ascended</p>
-              <button onClick={onExit} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-[0.2em] text-xs shadow-xl hover:scale-[1.02] active:scale-95">Return to Lobby</button>
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6">
+           <div className="bg-slate-900 border border-amber-500/30 p-12 rounded-[2.5rem] text-center shadow-2xl max-w-sm w-full">
+              <Trophy size={56} className="text-amber-500 mx-auto mb-8" />
+              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase">Crown Claimed</h2>
+              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-10">{winner} has ascended</p>
+              <button onClick={onExit} className="w-full bg-amber-500 text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-widest text-xs">Return to Lobby</button>
            </div>
         </div>
       )}
