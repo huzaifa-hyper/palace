@@ -1,19 +1,17 @@
-
 import { GoogleGenAI, Chat } from "@google/genai";
 import { GEMINI_SYSTEM_INSTRUCTION } from '../constants';
 
 let chatSession: Chat | null = null;
 
-// Fix: Simplified API Key initialization to strictly use process.env.API_KEY
-export const initializeChatSession = (apiKey: string) => {
-  const finalKey = apiKey || process.env.API_KEY;
-  if (!finalKey) return;
+// Fix: Use process.env.API_KEY exclusively as per SDK guidelines and initialize correctly
+export const initializeChatSession = () => {
+  if (!process.env.API_KEY) return;
   
   try {
-    // Fix: Initialize GoogleGenAI with named parameter apiKey
-    const ai = new GoogleGenAI({ apiKey: finalKey });
+    // Always use process.env.API_KEY and named parameter for initialization
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Fix: Changed model to 'gemini-3-flash-preview' for rule arbitration tasks
+    // Model for arbitration should be gemini-3-flash-preview as per task type
     chatSession = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
@@ -28,11 +26,10 @@ export const initializeChatSession = (apiKey: string) => {
 
 export const sendMessageToArbiter = async (message: string): Promise<string> => {
   if (!chatSession) {
-    // Fix: Rely on process.env.API_KEY directly for initialization if session is missing
-    const key = process.env.API_KEY;
-    if (key) {
-      initializeChatSession(key);
-    } else {
+    // Attempt initialization if session is missing, strictly using process.env.API_KEY
+    initializeChatSession();
+    
+    if (!chatSession) {
        console.warn("API Key missing for Arbiter.");
        return "The Arbiter is currently meditating (API Key missing).";
     }
@@ -41,8 +38,9 @@ export const sendMessageToArbiter = async (message: string): Promise<string> => 
   try {
     if (!chatSession) throw new Error("Session failed to initialize");
     
+    // Use sendMessage with proper message parameter
     const response = await chatSession.sendMessage({ message });
-    // Fix: Access .text as a property, not a method, as per SDK guidelines
+    // Correctly access .text as a property as per current SDK version
     return response.text || "The Arbiter remains silent (No text returned).";
   } catch (error) {
     console.error("Gemini Error:", error);

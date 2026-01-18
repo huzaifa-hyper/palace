@@ -14,9 +14,8 @@ export const Arbiter: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (process.env.API_KEY) {
-      initializeChatSession(process.env.API_KEY);
-    }
+    // Fix: Initialize session without parameters; the service handles its own key retrieval from process.env.API_KEY
+    initializeChatSession();
   }, []);
 
   const scrollToBottom = () => {
