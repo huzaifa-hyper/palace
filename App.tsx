@@ -1,15 +1,24 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Layers, Zap, Trophy, HelpCircle, BookOpen, Crown, Users, Smartphone, Globe, Check, Wallet, AlertTriangle, X, Bot, Lock, LogOut, Loader2, ShieldCheck } from 'lucide-react';
 import { 
-  useAddress, 
-  useDisconnect, 
-  useNetworkMismatch, 
-  useSwitchChain,
-  useConnectionStatus,
-  ConnectWallet
-} from "@thirdweb-dev/react";
+  Layers, 
+  Trophy, 
+  HelpCircle, 
+  BookOpen, 
+  Crown, 
+  Smartphone, 
+  Globe, 
+  Wallet, 
+  AlertTriangle, 
+  X, 
+  Bot, 
+  Lock, 
+  Loader2, 
+  ShieldCheck,
+  Power,
+  Users
+} from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
@@ -18,6 +27,7 @@ import { UserProfile, GameMode } from './types';
 import { SOMNIA_CHAIN_ID, web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
 import { useMinimumBalance, MIN_STT_REQUIRED } from './hooks/useMinimumBalance';
+import { useWallet } from './hooks/useWallet';
 
 export default function App() {
   const [hasMounted, setHasMounted] = useState(false);
@@ -29,11 +39,9 @@ export default function App() {
   const [offlineSetupMode, setOfflineSetupMode] = useState<GameMode | null>(null);
   const [protocolError, setProtocolError] = useState<string | null>(null);
 
-  // Thirdweb Hooks
-  const address = useAddress();
-  const isMismatched = useNetworkMismatch();
-  const switchChain = useSwitchChain();
-  const connectionStatus = useConnectionStatus();
+  // Custom Wallet Integration
+  const { address, isConnected, chainId, connect, disconnect, switchChain, isConnecting } = useWallet();
+  const isMismatched = isConnected && chainId !== SOMNIA_CHAIN_ID;
 
   // Custom Balance Hook
   const { isEligible, balance, isLoading: isBalanceLoading } = useMinimumBalance();
@@ -49,7 +57,6 @@ export default function App() {
     };
     initSdk();
 
-    // Production Security Check for Wallet Connection
     if (typeof window !== 'undefined' && 
         window.location.protocol !== 'https:' && 
         window.location.hostname !== 'localhost' && 
@@ -65,13 +72,6 @@ export default function App() {
       setIsProfileModalOpen(false);
     }
   }, []);
-
-  // Auto-switch network if mismatched and connected
-  useEffect(() => {
-    if (address && isMismatched && switchChain && hasMounted) {
-      switchChain(SOMNIA_CHAIN_ID).catch(console.error);
-    }
-  }, [address, isMismatched, switchChain, hasMounted]);
 
   if (!hasMounted) return null;
 
@@ -89,9 +89,7 @@ export default function App() {
   };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
-    // Disable if not connected or ineligible
-    if (!address || isMismatched || !isEligible) return;
-    
+    if (!isConnected || isMismatched || !isEligible) return;
     p2pService.destroy(); 
     setGameConfig({ mode, playerCount });
     setOfflineSetupMode(null);
@@ -148,7 +146,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)]">
         {activeTab === 'lobby' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
-             {/* Wallet & Balance Status Bar */}
+             {/* Simple Wallet Integration Header */}
              <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
                  <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
@@ -156,49 +154,51 @@ export default function App() {
                     </div>
                     <div>
                        <h3 className="font-bold text-slate-200 text-sm">Somnia Network Identity</h3>
-                       <div className="text-xs text-slate-400">Secure connection verified by Thirdweb</div>
+                       <div className="text-xs text-slate-400">Direct wallet interaction</div>
                     </div>
                  </div>
                  
                  <div className="flex items-center gap-4">
-                    {connectionStatus === "connecting" ? (
+                    {isConnecting ? (
                       <div className="flex items-center gap-2 text-slate-400 text-sm">
                          <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
-                         Syncing...
+                         Connecting...
                       </div>
-                    ) : address ? (
+                    ) : isConnected && address ? (
                        <div className="flex items-center gap-4 bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-600">
                            <div className="text-right">
                               <div className="text-xs font-bold text-slate-300">{web3Service.shortenAddress(address)}</div>
                               <div className={`text-sm font-mono font-bold flex items-center gap-2 justify-end ${isEligible ? 'text-emerald-400' : 'text-red-400'}`}>
-                                 {isBalanceLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : `${parseFloat(balance).toFixed(2)} STT`}
+                                 {isBalanceLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : `${parseFloat(balance).toFixed(3)} STT`}
                                  {isEligible ? <ShieldCheck className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                               </div>
                            </div>
-                           <ConnectWallet 
-                             theme="dark" 
-                             btnTitle="Wallet"
-                             className="!bg-transparent !border-0 !p-0 !min-w-0 !h-auto !text-slate-500 hover:!text-white !transition-colors"
-                           />
+                           <button 
+                            onClick={disconnect}
+                            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                            title="Disconnect"
+                           >
+                            <Power size={18} />
+                           </button>
                        </div>
                     ) : (
-                       <ConnectWallet 
-                         theme="dark" 
-                         btnTitle="Connect Wallet" 
-                         className="!bg-amber-600 hover:!bg-amber-500 !text-slate-950 !px-8 !py-2.5 !rounded-xl !font-bold !text-sm !transition-all !shadow-lg !border-0"
-                       />
+                       <button 
+                        onClick={connect}
+                        className="bg-amber-600 hover:bg-amber-500 text-slate-950 px-8 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg border-0"
+                       >
+                         Connect Wallet
+                       </button>
                     )}
                  </div>
              </div>
 
-             {/* Network Mismatch Warning */}
-             {address && isMismatched && (
+             {isMismatched && (
                <div className="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl flex items-center justify-between gap-3 animate-pulse shadow-lg">
                   <div className="flex items-center gap-3">
                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                     <span className="text-sm text-amber-100 font-bold">Wrong Network: The Palace resides on Somnia Testnet (50312)</span>
+                     <span className="text-sm text-amber-100 font-bold">Wrong Network: Switch to Somnia Testnet</span>
                   </div>
-                  <button onClick={() => switchChain?.(SOMNIA_CHAIN_ID)} className="bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-black shadow-lg hover:bg-amber-500 transition-colors">Switch Chain</button>
+                  <button onClick={switchChain} className="bg-amber-600 text-slate-950 px-5 py-2 rounded-lg text-xs font-black shadow-lg hover:bg-amber-500 transition-colors">Switch Chain</button>
                </div>
              )}
 
@@ -214,14 +214,16 @@ export default function App() {
                        </div>
                      ) : (
                        <button 
-                        disabled={!address || !isEligible || isMismatched}
+                        disabled={!isConnected || !isEligible || isMismatched}
                         onClick={() => setOfflineSetupMode('VS_BOT')} 
                         className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-8 rounded-[2rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                        >
                           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-32 h-32 text-white" /></div>
-                          {(!address || !isEligible || isMismatched) && <div className="absolute inset-0 bg-slate-950/60 z-20 flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
+                          {(!isConnected || !isEligible || isMismatched) && <div className="absolute inset-0 bg-slate-950/60 z-20 flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
                               <Lock className="text-slate-400 w-8 h-8" />
-                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest px-3 py-1 bg-slate-900/80 rounded-full border border-slate-700">Wallet Connection Required</span>
+                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest px-3 py-1 bg-slate-900/80 rounded-full border border-slate-700">
+                                {!isConnected ? "Wallet Required" : !isEligible ? "Min. 0.25 STT Required" : "Wrong Network"}
+                              </span>
                           </div>}
                           <div className="relative z-10">
                              <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-6 border border-emerald-500/20"><Bot className="w-7 h-7 text-emerald-400" /></div>
@@ -240,14 +242,16 @@ export default function App() {
                        </div>
                      ) : (
                        <button 
-                        disabled={!address || !isEligible || isMismatched}
+                        disabled={!isConnected || !isEligible || isMismatched}
                         onClick={() => setOfflineSetupMode('PASS_AND_PLAY')} 
                         className="w-full group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 p-8 rounded-[2rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                        >
                           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 text-white" /></div>
-                          {(!address || !isEligible || isMismatched) && <div className="absolute inset-0 bg-slate-950/60 z-20 flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
+                          {(!isConnected || !isEligible || isMismatched) && <div className="absolute inset-0 bg-slate-950/60 z-20 flex flex-col items-center justify-center gap-3 backdrop-blur-[2px]">
                               <Lock className="text-slate-400 w-8 h-8" />
-                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest px-3 py-1 bg-slate-900/80 rounded-full border border-slate-700">Wallet Connection Required</span>
+                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest px-3 py-1 bg-slate-900/80 rounded-full border border-slate-700">
+                                {!isConnected ? "Wallet Required" : !isEligible ? "Min. 0.25 STT Required" : "Wrong Network"}
+                              </span>
                           </div>}
                           <div className="relative z-10">
                              <div className="w-14 h-14 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
@@ -263,12 +267,12 @@ export default function App() {
                    <div className="flex items-center gap-2 text-slate-500 uppercase tracking-widest text-[10px] font-black"><Globe className="w-3.5 h-3.5" /> Global Conquest</div>
                    <div className="bg-slate-900/40 p-8 rounded-[2rem] border border-blue-500/10 relative overflow-hidden opacity-80 backdrop-blur-sm h-full flex flex-col justify-center">
                       <div className="absolute inset-0 bg-slate-950/70 z-20 flex flex-col items-center justify-center gap-4">
-                         <div className="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 animate-pulse"><Zap size={32} className="text-blue-400" /></div>
+                         <div className="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 animate-pulse"><Globe size={32} className="text-blue-400" /></div>
                          <span className="bg-blue-600 text-white px-5 py-2 rounded-full text-xs font-black tracking-[0.2em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
                       </div>
                       <div className="relative z-10">
                          <div className="flex items-center gap-4 mb-4">
-                            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/10"><Zap className="w-7 h-7 text-blue-400" /></div>
+                            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/10"><Globe className="w-7 h-7 text-blue-400" /></div>
                             <h3 className="text-2xl font-bold text-white font-playfair">Ranked Battle</h3>
                          </div>
                          <p className="text-sm text-slate-500 leading-relaxed font-light">Compete for STT rewards and climb the global leaderboard for legendary status.</p>
