@@ -52,25 +52,13 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
     }
   }
 
-  const baseClasses = `
-    relative 
-    w-[3.2rem] sm:w-[4rem] md:w-[4.5rem] lg:w-[5.5rem]
-    aspect-[2.5/3.5]
-    rounded-md md:rounded-lg 
-    transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] 
-    select-none cursor-pointer will-change-transform
-    flex-shrink-0
-    ${dimmed ? 'brightness-50 grayscale-[50%]' : ''}
-    ${className}
-  `;
-
   const content = faceDown ? (
     <div 
       className={`
         w-full h-full
         bg-slate-900 border border-slate-200/30 rounded-[inherit]
         overflow-hidden shadow-lg flex items-center justify-center
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 scale-105 shadow-amber-500/20 shadow-2xl' : 'shadow-black/50'}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900' : ''}
       `}
     >
       <div className="absolute inset-0 bg-[#0f172a]" style={{
@@ -79,7 +67,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
             repeating-linear-gradient(-45deg, #1e293b 0px, #1e293b 1px, transparent 1px, transparent 4px)
           `
       }}></div>
-      <div className="relative z-10 opacity-30">
+      <div className="relative opacity-30">
          <Sparkles className="w-5 h-5 md:w-8 md:h-8 text-amber-500" />
       </div>
     </div>
@@ -88,28 +76,25 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       className={`
         w-full h-full
         bg-white border border-slate-300 rounded-[inherit]
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 scale-110 shadow-2xl shadow-amber-500/20' : ''}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900' : ''}
         ${selected 
-            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 shadow-2xl brightness-105 scale-105' 
-            : 'hover:shadow-xl'
+            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 shadow-2xl brightness-105' 
+            : 'shadow-lg'
         }
         ${isRed ? 'text-rose-600' : 'text-slate-900'}
-        shadow-lg flex flex-col relative
+        flex flex-col relative
       `}
     >
-      {/* Corner Rank/Suit Top */}
       <div className="absolute top-1 left-1 flex flex-col items-center leading-none">
         <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
         <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
-      {/* Corner Rank/Suit Bottom */}
       <div className="absolute bottom-1 right-1 flex flex-col items-center leading-none transform rotate-180">
         <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
         <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
-      {/* Center Detail */}
       <div className="flex-1 flex flex-col items-center justify-center pointer-events-none p-2">
         {PowerIcon ? (
           <div className={`flex flex-col items-center justify-center ${powerColor} opacity-90 scale-90 md:scale-100`}>
@@ -124,9 +109,6 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
           </div>
         )}
       </div>
-
-      {/* Subtle Texture/Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-tr from-slate-200/5 via-white/5 to-white/5 opacity-30 pointer-events-none rounded-[inherit]"></div>
     </div>
   );
 
@@ -136,7 +118,16 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={style}
-      className={baseClasses}
+      className={`
+        relative 
+        w-[3.2rem] sm:w-[4rem] md:w-[4.5rem] lg:w-[5.5rem]
+        aspect-[2.5/3.5]
+        rounded-md md:rounded-lg 
+        transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] 
+        select-none cursor-pointer flex-shrink-0
+        ${dimmed ? 'brightness-50 grayscale-[50%]' : ''}
+        ${className}
+      `}
     >
       {content}
     </div>

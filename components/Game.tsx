@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -371,7 +370,6 @@ export const Game: React.FC<{
           <button onClick={onExit} className="p-1.5 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"><X size={16} /></button>
           <div className="h-4 w-px bg-white/10 mx-1"></div>
           <h1 className="text-[10px] sm:text-xs font-playfair font-black text-amber-500 tracking-widest uppercase flex items-center gap-1.5">
-            {/* Fix: use curly braces for size prop to avoid boolean type error */}
             <Zap size={10} className="fill-amber-500" /> Palace Rulers
           </h1>
         </div>
@@ -471,39 +469,36 @@ export const Game: React.FC<{
         </div>
       </main>
 
-      <footer className="h-40 md:h-48 bg-slate-950 border-t border-white/10 p-2 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
+      <footer className="h-44 md:h-52 bg-slate-950 border-t border-white/10 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
         {phase === 'PLAYING' && turnIndex === 0 && (
            <button 
             onClick={pickUpPile} 
-            className="absolute -top-8 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-xl z-[310] transition-all"
+            className="absolute -top-10 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-xl z-[310] transition-all"
            >
             Inherit Pile
            </button>
         )}
         
-        <div className="w-full h-full flex justify-center items-end overflow-x-auto no-scrollbar scroll-smooth pt-10">
-           <div className="flex items-center gap-0.5 px-10 min-w-max pb-4">
+        <div className="w-full h-full flex justify-center items-end overflow-x-auto no-scrollbar scroll-smooth pt-12">
+           <div className="flex items-center gap-0.5 px-10 min-w-max pb-6">
               {players[0]?.hand.map((card, i) => {
                 const isSelected = selectedSource === 'HAND' && selectedCardIds.includes(card.id);
                 const overlap = players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
                 
                 return (
-                  <div 
-                    key={card.id} 
-                    className="transition-all duration-300 relative" 
-                    style={{ 
-                      marginLeft: i === 0 ? '0' : overlap, 
-                      zIndex: isSelected ? 500 + i : i, 
-                      transform: isSelected ? 'translateY(-2.5rem) scale(1.1)' : 'translateY(0)' 
+                  <PlayingCard 
+                    key={card.id}
+                    {...card} 
+                    selected={isSelected} 
+                    highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
+                    onClick={() => handleCardSelection(card, 'HAND')}
+                    style={{
+                      marginLeft: i === 0 ? '0' : overlap,
+                      zIndex: isSelected ? 1000 + i : i,
+                      transform: isSelected ? 'translateY(-3rem) scale(1.15)' : 'translateY(0)',
+                      boxShadow: isSelected ? '0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(245,158,11,0.2)' : 'none'
                     }}
-                  >
-                    <PlayingCard 
-                      {...card} 
-                      selected={isSelected} 
-                      highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
-                      onClick={() => handleCardSelection(card, 'HAND')} 
-                    />
-                  </div>
+                  />
                 );
               })}
            </div>
