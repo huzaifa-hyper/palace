@@ -52,11 +52,6 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
     }
   }
 
-  /**
-   * FIX: STRICT DIMENSIONS
-   * Using rem for widths and aspect-ratio for height ensures cards NEVER stretch.
-   * flex-shrink-0 prevents containers from squashing them.
-   */
   const baseClasses = `
     relative 
     w-[3.2rem] sm:w-[4rem] md:w-[4.5rem] lg:w-[5.5rem]
@@ -75,7 +70,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
         w-full h-full
         bg-slate-900 border border-slate-200/30 rounded-[inherit]
         overflow-hidden shadow-lg flex items-center justify-center
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-10 scale-105 shadow-amber-500/20 shadow-2xl' : 'shadow-black/50'}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 scale-105 shadow-amber-500/20 shadow-2xl' : 'shadow-black/50'}
       `}
     >
       <div className="absolute inset-0 bg-[#0f172a]" style={{
@@ -93,9 +88,9 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       className={`
         w-full h-full
         bg-white border border-slate-300 rounded-[inherit]
-        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-20 scale-110 shadow-2xl shadow-amber-500/20' : ''}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 scale-110 shadow-2xl shadow-amber-500/20' : ''}
         ${selected 
-            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 z-40 shadow-2xl brightness-105' 
+            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 shadow-2xl brightness-105 scale-105' 
             : 'hover:shadow-xl'
         }
         ${isRed ? 'text-rose-600' : 'text-slate-900'}
