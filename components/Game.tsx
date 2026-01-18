@@ -267,8 +267,8 @@ export const Game: React.FC<{
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
-      {/* 1. Header - Fixed compact height */}
-      <header className="h-8 md:h-10 flex items-center justify-between px-4 bg-slate-950/95 backdrop-blur-xl border-b border-white/5 z-[100] shrink-0">
+      {/* Zone 1: Header */}
+      <header className="h-10 flex items-center justify-between px-4 bg-slate-950/95 backdrop-blur-xl border-b border-white/5 z-[100] shrink-0">
         <div className="flex items-center gap-2">
           <button onClick={onExit} className="p-1 hover:bg-rose-500/20 rounded-full text-slate-400 hover:text-rose-400 transition-all"><X size={14} /></button>
           <div className="h-4 w-px bg-white/10"></div>
@@ -285,12 +285,12 @@ export const Game: React.FC<{
         </div>
       </header>
 
-      {/* 2. Main Container */}
+      {/* Zone 2 & 3: Main Game Body */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden relative">
         <div className="flex-1 flex flex-col min-h-0 relative">
           
-          {/* Top: Opponents Row (Compact) */}
-          <div className="h-10 md:h-12 flex items-center justify-center gap-4 shrink-0 pointer-events-none px-2">
+          {/* Top: Opponents Row (Zone 2) */}
+          <div className="h-10 md:h-12 flex items-center justify-center gap-4 shrink-0 pointer-events-none px-2 bg-slate-950/20">
             {players.filter(p => !p.isHuman).map(opp => (
               <div key={opp.id} className={`flex items-center gap-1.5 transition-all ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30 grayscale'}`}>
                  <div className={`w-6 h-6 rounded bg-slate-800 border ${turnIndex === opp.id ? 'border-amber-500 shadow-lg' : 'border-slate-700'} flex items-center justify-center`}>
@@ -301,11 +301,11 @@ export const Game: React.FC<{
             ))}
           </div>
 
-          {/* Middle: Gameplay Area (The Battlefield) */}
-          <div className="flex-1 flex flex-col items-center justify-between p-2 min-h-0">
+          {/* Middle: Battlefield (Zone 3) */}
+          <div className="flex-1 flex flex-col items-center justify-between p-2 md:p-4 min-h-0 relative">
             
-            {/* The Pile */}
-            <div className="flex-1 flex items-center justify-center w-full relative min-h-[120px]">
+            {/* Battlefield: Central Pile */}
+            <div className="flex-1 flex items-center justify-center w-full relative min-h-[120px] max-h-[260px]">
               <div className="relative w-32 h-32 md:w-48 md:h-48 flex items-center justify-center z-10">
                 {pile.length === 0 ? (
                   <div className="w-14 h-20 md:w-20 md:h-28 border-2 border-dashed border-white/5 rounded-lg flex items-center justify-center flex-col gap-1 text-white/5">
@@ -319,33 +319,33 @@ export const Game: React.FC<{
                   ))
                 )}
                 {activeConstraint === 'LOWER_THAN_7' && (
-                   <div className="absolute -bottom-2 bg-emerald-500 text-slate-900 px-2 py-0.5 rounded-full text-[6px] font-black uppercase tracking-widest animate-bounce shadow-xl z-50">MUST BE ≤ 7</div>
+                   <div className="absolute -bottom-4 bg-emerald-500 text-slate-900 px-2 py-0.5 rounded-full text-[6px] font-black uppercase tracking-widest animate-bounce shadow-xl z-[60]">MUST BE ≤ 7</div>
                 )}
               </div>
             </div>
 
-            {/* Setup UI: Dynamic spacing */}
+            {/* Battlefield: Action UI (Confirm Button) */}
             {phase === 'SETUP' && (
-              <div className="flex flex-col items-center gap-1 my-1 shrink-0 z-[120]">
+              <div className="flex flex-col items-center gap-1 my-2 shrink-0 z-[120] relative">
                 <button 
                    onClick={confirmSetup} 
                    disabled={selectedCardIds.length !== 3} 
-                   className={`px-6 py-2 rounded-full font-black text-[8px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-2xl ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-105 shadow-[0_0_15px_rgba(245,158,11,0.5)]' : 'bg-slate-800 text-slate-600 opacity-60 cursor-not-allowed border border-white/5'}`}
+                   className={`px-6 py-2 rounded-full font-black text-[8px] md:text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 shadow-2xl border ${selectedCardIds.length === 3 ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.6)]' : 'bg-slate-800 text-slate-600 opacity-60 cursor-not-allowed border-white/5'}`}
                 >
-                   <ShieldCheck size={12} /> CONFIRM STRONGHOLD ({selectedCardIds.length}/3)
+                   <ShieldCheck size={14} /> CONFIRM STRONGHOLD ({selectedCardIds.length}/3)
                 </button>
-                <p className="text-[7px] text-amber-500 font-black uppercase tracking-widest px-2 py-0.5 rounded bg-slate-950/40">Pick 3 Strategic Defense Cards</p>
+                <p className="text-[7px] text-amber-500 font-black uppercase tracking-widest px-3 py-1 rounded bg-slate-950/60 border border-amber-500/10 backdrop-blur-sm">Pick 3 Strategic Defense Cards</p>
               </div>
             )}
 
-            {/* Player's Stronghold Area */}
-            <div className="h-16 md:h-24 shrink-0 flex items-center justify-center w-full z-40 bg-white/5 rounded-xl border border-white/5 p-1 mb-1">
-               <div className="flex justify-center gap-2 md:gap-4 pointer-events-auto">
+            {/* Battlefield: Player's Stronghold (Base of Battleground) */}
+            <div className="h-18 md:h-26 shrink-0 flex items-center justify-center w-full z-40 bg-white/5 rounded-2xl border border-white/5 p-1 mb-2 shadow-inner">
+               <div className="flex justify-center gap-3 md:gap-5 pointer-events-auto relative">
                   {players[0]?.hiddenCards.map((c, i) => (
                     <div key={`def-${i}`} className="relative">
-                      <PlayingCard faceDown className="shadow-2xl scale-90 sm:scale-100" />
+                      <PlayingCard faceDown className="shadow-2xl scale-95 sm:scale-100" />
                       {players[0].faceUpCards[i] && (
-                        <div className="absolute -top-2.5 -right-2.5 md:-top-3 md:-right-3 scale-90 sm:scale-100">
+                        <div className="absolute -top-3 -right-3 md:-top-4 md:-right-4 scale-95 sm:scale-100">
                             <PlayingCard 
                               {...players[0].faceUpCards[i]} 
                               onClick={() => { if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) playCards([players[0].faceUpCards[i].id], 'FACEUP'); }} 
@@ -362,8 +362,8 @@ export const Game: React.FC<{
           </div>
         </div>
 
-        {/* Sidebar: Desktop Logs / Mobile Compact Aside */}
-        <aside className="w-full md:w-44 bg-slate-950/80 p-2 flex flex-col border-t md:border-t-0 md:border-l border-white/5 h-16 md:h-auto shrink-0 z-[60]">
+        {/* Sidebar: Log Area */}
+        <aside className="w-full md:w-44 bg-slate-950/90 p-2 flex flex-col border-t md:border-t-0 md:border-l border-white/5 h-16 md:h-auto shrink-0 z-[60]">
           <div className="flex items-center gap-1.5 mb-1 text-slate-600 font-black text-[6px] uppercase tracking-widest border-b border-white/5 pb-1"><History size={8} /> BATTLE LOG</div>
           <div className="flex-1 overflow-y-auto space-y-0.5 no-scrollbar text-[7px] leading-tight">
              {logs.map((log, i) => <div key={i} className="font-bold text-slate-500 bg-white/5 p-1 rounded border border-white/5">{log}</div>)}
@@ -375,36 +375,40 @@ export const Game: React.FC<{
         </aside>
       </div>
 
-      {/* 3. Footer: Hand Area - Constant height, layered interaction */}
+      {/* Zone 4: Footer (The Hand) */}
       <footer className="h-24 md:h-32 bg-slate-950/98 border-t border-white/10 p-1 relative flex flex-col items-center justify-center z-[110] shrink-0 overflow-visible">
         <div className="w-full h-full flex justify-center items-center overflow-x-auto no-scrollbar py-1">
-           <div className="flex items-center gap-0.5 px-10">
-              {players[0]?.hand.map((card, i) => (
-                <div 
-                  key={card.id} 
-                  className="transition-all duration-300" 
-                  style={{ 
-                    marginLeft: i === 0 ? '0' : '-1.8rem', 
-                    zIndex: i + (selectedCardIds.includes(card.id) ? 100 : 0), 
-                    transform: selectedCardIds.includes(card.id) ? 'translateY(-1.2rem) scale(1.05)' : 'translateY(0)' 
-                  }}
-                >
-                  <PlayingCard 
-                    {...card} 
-                    selected={selectedCardIds.includes(card.id)} 
-                    highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
-                    onClick={() => {
-                      if (phase === 'SETUP') setSelectedCardIds(prev => prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev);
-                      else if (phase === 'PLAYING' && turnIndex === 0) playCards(players[0].hand.filter(c => c.rank === card.rank).map(c => c.id), 'HAND');
-                    }} 
-                  />
-                </div>
-              ))}
+           <div className="flex items-center gap-0.5 px-10 min-w-max">
+              {players[0]?.hand.map((card, i) => {
+                // Adaptive overlap for large hands
+                const overlap = players[0].hand.length > 7 ? '-1.8rem' : '-1.4rem';
+                return (
+                  <div 
+                    key={card.id} 
+                    className="transition-all duration-300 relative" 
+                    style={{ 
+                      marginLeft: i === 0 ? '0' : overlap, 
+                      zIndex: i + (selectedCardIds.includes(card.id) ? 100 : 0), 
+                      transform: selectedCardIds.includes(card.id) ? 'translateY(-1rem) scale(1.05)' : 'translateY(0)' 
+                    }}
+                  >
+                    <PlayingCard 
+                      {...card} 
+                      selected={selectedCardIds.includes(card.id)} 
+                      highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
+                      onClick={() => {
+                        if (phase === 'SETUP') setSelectedCardIds(prev => prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev);
+                        else if (phase === 'PLAYING' && turnIndex === 0) playCards(players[0].hand.filter(c => c.rank === card.rank).map(c => c.id), 'HAND');
+                      }} 
+                    />
+                  </div>
+                );
+              })}
            </div>
         </div>
       </footer>
 
-      {/* Victory Overlay */}
+      {/* Overlays */}
       {winner && (
         <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center z-[500] p-6">
            <div className="bg-slate-900 border border-amber-500/30 p-8 rounded-3xl text-center shadow-2xl max-w-xs w-full animate-in zoom-in duration-300">
