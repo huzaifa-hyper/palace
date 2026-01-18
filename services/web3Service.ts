@@ -2,16 +2,12 @@ import sdk from '@farcaster/frame-sdk';
 
 /**
  * Somnia Testnet Configuration
- * Fully migrated from Soneium Minato.
  */
 export const SOMNIA_CHAIN_ID = 50370; 
 export const SOMNIA_CHAIN_ID_HEX = '0xc4c2'; 
 export const SOMNIA_RPC_URL = 'https://rpc.testnet.somnia.network';
 export const SOMNIA_EXPLORER_URL = 'https://explorer.testnet.somnia.network';
 export const MIN_USD_REQUIREMENT = 0.25;
-
-// Placeholder for future Somnia-specific smart contracts
-export const SOMNIA_POOL_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000000'; 
 
 declare global {
   interface Window {
@@ -31,7 +27,6 @@ export interface Web3Response {
 
 /**
  * Utility to get the most reliable provider available.
- * Prioritizes Farcaster SDK, then window.ethereum.
  */
 const getProviderSource = () => {
   if (typeof window === 'undefined') return null;
@@ -43,12 +38,12 @@ const getProviderSource = () => {
       return frameProvider;
     }
 
-    // 2. Standard Injected Provider (MetaMask / Brave / etc.)
+    // 2. Standard Injected Provider
     if (window.ethereum && typeof window.ethereum.request === 'function') {
       return window.ethereum;
     }
     
-    // 3. Fallback for diverse browser injections
+    // 3. Fallback
     const anyEth = (window as any).ethereum;
     if (anyEth && typeof anyEth.request === 'function') {
       return anyEth;
@@ -60,10 +55,38 @@ const getProviderSource = () => {
   return null;
 };
 
+/**
+ * Safely extracts error code from various wallet error formats.
+ */
+const getErrorCode = (error: any): number | null => {
+  if (!error || typeof error !== 'object') return null;
+  
+  // Try standard code
+  if (typeof error.code === 'number') return error.code;
+  
+  // Try nested data code (MetaMask style)
+  if (error.data && typeof error.data === 'object' && typeof error.data.code === 'number') return error.data.code;
+  
+  // Try nested error code
+  if (error.error && typeof error.error === 'object' && typeof error.error.code === 'number') return error.error.code;
+
+  // Try Ethers v6 style info
+  if (error.info && error.info.error && typeof error.info.error.code === 'number') return error.info.error.code;
+
+  return null;
+};
+
+/**
+ * Safely extracts error message.
+ */
+const getErrorMessage = (error: any): string => {
+  if (!error) return "Unknown error";
+  if (typeof error === 'string') return error;
+  if (error.message && typeof error.message === 'string') return error.message;
+  return "An unexpected error occurred during the wallet operation.";
+};
+
 export const web3Service = {
-  /**
-   * Fetches STNET price proxy.
-   */
   getEthPrice: async (): Promise<number> => {
     try {
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
@@ -75,9 +98,6 @@ export const web3Service = {
     }
   },
 
-  /**
-   * Switches to Somnia Testnet with exhaustive safety checks to prevent 'undefined' crashes.
-   */
   switchNetwork: async (ethereum: any) => {
     if (!ethereum || typeof ethereum.request !== 'function') {
       throw new Error('No active wallet provider found.');
@@ -89,11 +109,10 @@ export const web3Service = {
         params: [{ chainId: SOMNIA_CHAIN_ID_HEX }],
       });
     } catch (switchError: any) {
-      // Robustly extract error code using optional chaining to prevent "reading properties of undefined"
-      const errorCode = switchError?.code || switchError?.data?.code || switchError?.error?.code;
-      const errorMsg = (switchError?.message || "").toLowerCase();
+      const errorCode = getErrorCode(switchError);
+      const errorMsg = getErrorMessage(switchError).toLowerCase();
       
-      // If network is missing, attempt to add it
+      // If network is missing, attempt to add it (4902 is "missing chain")
       if (errorCode === 4902 || errorMsg.includes('unrecognized') || errorMsg.includes('not found')) {
         try {
           await ethereum.request({
@@ -113,29 +132,26 @@ export const web3Service = {
             ],
           });
         } catch (addError: any) {
-          throw new Error(addError?.message || 'Failed to add the Somnia Testnet to your wallet.');
+          throw new Error(getErrorMessage(addError) || 'Failed to add Somnia Testnet.');
         }
       } else if (errorCode === 4001) {
-        throw new Error('Connection to Somnia was rejected.');
+        throw new Error('Connection to Somnia was rejected by the user.');
       } else {
-        throw new Error(switchError?.message || 'Could not switch to Somnia Testnet.');
+        throw new Error(getErrorMessage(switchError) || 'Could not switch to Somnia Testnet.');
       }
     }
   },
 
-  /**
-   * Main connection entry point for Somnia.
-   */
   connectWallet: async (): Promise<Web3Response> => {
     try {
       const ethereum = getProviderSource();
       if (!ethereum) {
-        return { success: false, message: "No Web3 wallet detected. Please open in Farcaster or a Web3-enabled browser." };
+        return { success: false, message: "No Web3 wallet detected. Please open in Farcaster or a Web3 browser." };
       }
       
-      const ethers = window.ethers;
+      const ethers = (window as any).ethers;
       if (!ethers || typeof ethers.BrowserProvider !== 'function') {
-          return { success: false, message: "Web3 engine (Ethers) failed to initialize. Please refresh." };
+          return { success: false, message: "Web3 engine (Ethers) is not loaded. Please refresh the page." };
       }
 
       // 1. Request access
@@ -170,13 +186,9 @@ export const web3Service = {
 
     } catch (error: any) {
       console.error("Somnia Wallet Connection Error:", error);
-      
-      // Prevent "Cannot read properties of undefined" inside the catch block itself
-      const msg = error?.message || (typeof error === 'string' ? error : "An unexpected connection error occurred.");
-      
       return { 
         success: false, 
-        message: msg, 
+        message: getErrorMessage(error), 
         isEligible: false 
       };
     }
