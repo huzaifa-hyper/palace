@@ -52,10 +52,10 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
     }
   }
 
-  // Highly responsive card dimensions - Optimized for mobile landscape/restricted height
+  // Ultra-compact dimensions for better vertical stacking on mobile
   const baseClasses = `
     relative 
-    w-[2.8rem] h-[4rem] sm:w-14 sm:h-20 md:w-18 md:h-26 lg:w-22 lg:h-32
+    w-[2.6rem] h-[3.8rem] sm:w-14 sm:h-20 md:w-18 md:h-26 lg:w-22 lg:h-32
     rounded-md md:rounded-lg 
     transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] 
     select-none cursor-pointer will-change-transform
@@ -72,9 +72,9 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
         style={style}
         className={`
           ${baseClasses}
-          bg-slate-900 border-[1.5px] border-slate-200/40
+          bg-slate-900 border border-slate-200/30
           overflow-hidden shadow-lg
-          ${highlight ? 'ring-2 md:ring-4 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-10 scale-105' : 'shadow-black/50'}
+          ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-10 scale-105' : 'shadow-black/50'}
         `}
       >
         <div className="absolute inset-0 bg-[#0f172a]" style={{
@@ -83,9 +83,8 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
               repeating-linear-gradient(-45deg, #1e293b 0px, #1e293b 1px, transparent 1px, transparent 4px)
             `
         }}></div>
-        <div className="absolute inset-0.5 border border-amber-500/10 rounded-sm md:rounded-md"></div>
         <div className="absolute inset-0 flex items-center justify-center">
-           <Sparkles className="w-2.5 h-2.5 md:w-5 md:h-5 text-amber-500/40" />
+           <Sparkles className="w-2.5 h-2.5 md:w-5 md:h-5 text-amber-500/20" />
         </div>
       </div>
     );
@@ -100,9 +99,9 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       className={`
         ${baseClasses}
         bg-white border border-slate-300
-        ${highlight ? 'ring-2 md:ring-4 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-20 scale-110 shadow-2xl' : ''}
+        ${highlight ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900 z-20 scale-110 shadow-2xl' : ''}
         ${selected 
-            ? 'ring-2 md:ring-4 ring-amber-500 ring-offset-1 ring-offset-slate-900 z-40 shadow-2xl' 
+            ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-slate-900 z-40 shadow-2xl brightness-105' 
             : 'hover:shadow-xl'
         }
         ${isRed ? 'text-rose-600' : 'text-slate-900'}
@@ -110,25 +109,25 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
       `}
     >
       <div className="absolute top-0.5 left-0.5 md:top-1 md:left-1 flex flex-col items-center leading-none">
-        <span className="font-playfair text-[10px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
-        <span className="text-[6px] sm:text-xs md:text-sm -mt-0.5">{suit}</span>
+        <span className="font-playfair text-[9px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
+        <span className="text-[5px] sm:text-xs md:text-sm -mt-0.5">{suit}</span>
       </div>
 
       <div className="absolute bottom-0.5 right-0.5 md:bottom-1 md:right-1 flex flex-col items-center leading-none transform rotate-180">
-        <span className="font-playfair text-[10px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
-        <span className="text-[6px] sm:text-xs md:text-sm -mt-0.5">{suit}</span>
+        <span className="font-playfair text-[9px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
+        <span className="text-[5px] sm:text-xs md:text-sm -mt-0.5">{suit}</span>
       </div>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-1">
         {PowerIcon ? (
           <div className={`flex flex-col items-center justify-center ${powerColor} opacity-90`}>
-            <PowerIcon className="w-3 h-3 sm:w-6 sm:h-6 md:w-8 md:h-8 mb-0.5" strokeWidth={2.5} />
-            <span className="text-[3px] md:text-[7px] font-black tracking-widest uppercase border-[0.5px] border-current px-1 rounded-full bg-white/70">
+            <PowerIcon className="w-2.5 h-2.5 sm:w-6 sm:h-6 md:w-8 md:h-8 mb-0.5" strokeWidth={2.5} />
+            <span className="text-[2px] md:text-[7px] font-black tracking-widest uppercase border-[0.5px] border-current px-1 rounded-full bg-white/70">
               {powerLabel}
             </span>
           </div>
         ) : (
-          <div className="text-lg sm:text-3xl md:text-5xl opacity-80 font-serif transform scale-y-90">
+          <div className="text-sm sm:text-3xl md:text-5xl opacity-80 font-serif transform scale-y-90">
             {suit}
           </div>
         )}
