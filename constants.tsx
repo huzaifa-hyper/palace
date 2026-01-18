@@ -1,46 +1,35 @@
 export const GAME_RULES_TEXT = `
-**Game Setup:**
-- Each player starts with 3 hidden cards (face-down). They cannot look at these cards.
-- Then each player is dealt 7 visible cards (hand cards).
-- From these 7 cards, the player must select 3 cards and place them face-up on top of the 3 hidden cards.
-- After placing these 3 cards, players play with their remaining hand cards. The game continues until the deck runs out.
+**Phase 1: The Fortification (Setup)**
+- Each ruler is dealt 3 hidden cards (face-down) and 7 hand cards.
+- You must select 3 of your strongest cards to place face-up on top of your hidden cards. This is your **Stronghold**.
+- Once confirmed, the Skirmish begins with your remaining 4 cards.
 
-**Card Hierarchy:**
-- A > K > Q > J > all number cards
-- Higher value beats lower value.
-- Equal value is allowed (e.g., playing a 5 on a 5).
+**Phase 2: The Skirmish (Gameplay)**
+- Rulers take turns playing cards that are **equal to or higher** than the top card of the pile.
+- You can play multiple cards of the same rank at once (a "set").
+- **Auto-Refill:** If the deck has cards, you must always draw back up to a minimum of 3 cards in your hand after playing.
+- **Failed Play:** If you cannot play a legal card, you must pick up the entire pile.
 
-**Special Power Cards (Override Hierarchy):**
-- **2 (Reset):** Acts as a reset. After someone plays a 2, the next player may throw any card.
-- **7 (Lower):** The next card played must be lower than 7.
-- **10 (Burn):** Burns the pile. The entire pile is removed from the game, and the next player starts fresh with any card.
+**Phase 3: The High Arcana (Power Cards)**
+- **Rank 2 (The Reset):** Playable on anything. Resets the pile value. The current ruler plays again immediately.
+- **Rank 7 (The Lowering):** The next ruler must play a card equal to or LOWER than 7.
+- **Rank 10 (The Burn):** Playable on anything. Vaporizes the pile (removes it from game). The current ruler starts a fresh turn.
 
-**Basic Gameplay Rules:**
-- Players throw cards onto a central pile in turns.
-- You must throw a card equal to or higher than the top card—unless using a power card.
-- If you cannot legally throw a card, you must pick up the entire pile.
-- **Always Draw:** If the deck has cards, you must draw to maintain at least 3 cards in your hand after your turn.
-
-**Using the Stacked Cards:**
-- You may only use the 3 face-up cards on top of your hidden cards after your hand is reduced to 1 card.
-- When you are left with only 1 card in your hand, you immediately pick up your 3 face-up cards and continue playing with them.
-- Once all face-up cards are used, you must play the final 3 hidden cards, blindly, one by one.
-- If a hidden card is unplayable, you must pick up the pile.
-
-**Winning:**
-- The first player to successfully play all cards (hand cards → face-up cards → hidden cards) wins the game.
+**Phase 4: Coronation (Endgame)**
+- Once the deck is empty and your hand is empty, you pick up your 3 **Stronghold** (face-up) cards.
+- Once those are played, you must play your 3 **Blind Siege** (hidden) cards one by one without looking.
+- If a blind card is illegal, you pick up the pile and must shed those cards before trying the next blind card.
+- First to empty all 3 layers of cards wins the Throne.
 `;
 
 export const GEMINI_SYSTEM_INSTRUCTION = `
-You are the Official Arbiter for a custom strategy card game called "Palace Rulers".
-Your goal is to answer player questions about rules, edge cases, and scenarios clearly and authoritatively.
+You are the Official Arbiter for "Palace Rulers", a tactical card game.
+Your goal is to answer player questions about rules, edge cases, and strategy clearly.
 
-Here are the OFFICIAL RULES. Do not deviate from them. If a user asks about a rule not specified here, use your best judgment to suggest a fair "House Rule" consistent with the spirit of strategic shedding games (like Palace, Shithead, Karma), but explicitly state that it is a suggestion.
-
+OFFICIAL RULES:
 ${GAME_RULES_TEXT}
 
-Tone: Professional, impartial, slightly mystical (like a dungeon master or casino pit boss).
-Format: Keep answers concise. Use bullet points for steps.
+Tone: Authoritative, professional, slightly mystical. Keep responses concise.
 `;
 
 export const MOCK_PLAYER_NAMES = [
