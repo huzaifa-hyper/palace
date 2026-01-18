@@ -15,8 +15,7 @@
     "@google/genai": "^1.32.0",
     "@farcaster/frame-sdk": "0.0.12",
     "socket.io-client": "4.7.5",
-    "@thirdweb-dev/react": "^4.9.4",
-    "wagmi": "^3.3.2"
+    "@thirdweb-dev/react": "^4.9.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
