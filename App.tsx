@@ -5,11 +5,10 @@ import { Layers, Zap, Trophy, HelpCircle, BookOpen, Crown, Users, Smartphone, Gl
 import { 
   useAddress, 
   useDisconnect, 
-  useMetamask, 
   useNetworkMismatch, 
-  useChainId, 
   useSwitchChain,
-  useConnectionStatus
+  useConnectionStatus,
+  ConnectWallet
 } from "@thirdweb-dev/react";
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
@@ -32,7 +31,6 @@ export default function App() {
 
   // Thirdweb Hooks
   const address = useAddress();
-  const connectWithMetamask = useMetamask();
   const disconnect = useDisconnect();
   const isMismatched = useNetworkMismatch();
   const switchChain = useSwitchChain();
@@ -89,7 +87,9 @@ export default function App() {
   };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
+    // Enforcement: Must be connected, on correct chain, and have minimum balance
     if (!address || isMismatched || !isEligible) return;
+    
     p2pService.destroy(); 
     setGameConfig({ mode, playerCount });
     setOfflineSetupMode(null);
@@ -154,52 +154,63 @@ export default function App() {
                     </div>
                     <div>
                        <h3 className="font-bold text-slate-200 text-sm">Somnia Testnet Guard</h3>
-                       <div className="text-xs text-slate-400">Locked to Chain 50312</div>
+                       <div className="text-xs text-slate-400">Authorized Access Required</div>
                     </div>
                  </div>
                  
-                 {connectionStatus === "connecting" || connectionStatus === "unknown" ? (
-                   <div className="flex items-center gap-2 text-slate-400 text-sm">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Initializing Wallet...
-                   </div>
-                 ) : address ? (
-                    <div className="flex items-center gap-4 bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-600">
-                        <div className="text-right">
-                           <div className="text-xs font-bold text-slate-400">{web3Service.shortenAddress(address)}</div>
-                           <div className={`text-sm font-mono font-bold flex items-center gap-2 justify-end ${isEligible ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {isBalanceLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : `${parseFloat(balance).toFixed(2)} STT`}
-                              {isEligible ? <ShieldCheck className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                 <div className="flex items-center gap-4">
+                    {connectionStatus === "connecting" || connectionStatus === "unknown" ? (
+                      <div className="flex items-center gap-2 text-slate-400 text-sm">
+                         <Loader2 className="w-4 h-4 animate-spin" />
+                         Syncing...
+                      </div>
+                    ) : address ? (
+                       <div className="flex items-center gap-4 bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-600">
+                           <div className="text-right">
+                              <div className="text-xs font-bold text-slate-400">{web3Service.shortenAddress(address)}</div>
+                              <div className={`text-sm font-mono font-bold flex items-center gap-2 justify-end ${isEligible ? 'text-emerald-400' : 'text-red-400'}`}>
+                                 {isBalanceLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : `${parseFloat(balance).toFixed(2)} STT`}
+                                 {isEligible ? <ShieldCheck className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                              </div>
                            </div>
-                        </div>
-                        <button onClick={() => disconnect()} className="p-2 text-slate-500 hover:text-red-400 transition-colors"><LogOut size={18}/></button>
-                    </div>
-                 ) : (
-                    <button onClick={() => connectWithMetamask()} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg flex items-center gap-2">
-                       <Wallet className="w-4 h-4" /> Connect Wallet
-                    </button>
-                 )}
+                           <ConnectWallet 
+                             theme="dark" 
+                             btnTitle="Wallet"
+                             className="!bg-transparent !border-0 !p-0 !min-w-0 !h-auto !text-slate-500 hover:!text-white"
+                           />
+                       </div>
+                    ) : (
+                       <ConnectWallet 
+                         theme="dark" 
+                         btnTitle="Connect Wallet" 
+                         className="!bg-purple-600 hover:!bg-purple-500 !text-white !px-6 !py-2 !rounded-lg !font-bold !text-sm !transition-colors !shadow-lg"
+                       />
+                    )}
+                 </div>
              </div>
 
-             {/* Warnings */}
+             {/* Network Mismatch Warning */}
              {address && isMismatched && (
                <div className="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl flex items-center justify-between gap-3 animate-pulse">
                   <div className="flex items-center gap-3">
                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                     <span className="text-sm text-amber-200 font-bold">Wrong Network: Switch to Somnia Testnet</span>
+                     <span className="text-sm text-amber-200 font-bold">Wrong Network: The Palace resides on Somnia Testnet</span>
                   </div>
-                  <button onClick={() => switchChain?.(SOMNIA_CHAIN_ID)} className="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">Switch Now</button>
+                  <button onClick={() => switchChain?.(SOMNIA_CHAIN_ID)} className="bg-amber-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg">Switch Network</button>
                </div>
              )}
 
+             {/* Insufficient Balance Message */}
              {address && !isEligible && !isBalanceLoading && !isMismatched && (
                 <div className="bg-red-500/10 border border-red-500/50 p-6 rounded-2xl flex flex-col items-center gap-4 text-center">
                    <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center"><Lock size={32} className="text-red-500" /></div>
                    <div>
-                      <h3 className="text-xl font-bold text-white mb-1">Treasury Requirement: 1 STT</h3>
-                      <p className="text-slate-400 max-w-sm text-sm">Your balance: <span className="text-red-400 font-bold">{parseFloat(balance).toFixed(4)} STT</span>. Please visit the faucet to continue.</p>
+                      <h3 className="text-xl font-bold text-white mb-1">Minimum 1 STT required to play</h3>
+                      <p className="text-slate-400 max-w-sm text-sm">Your balance: <span className="text-red-400 font-bold">{parseFloat(balance).toFixed(4)} STT</span>. Please visit the faucet to replenish your treasury.</p>
                    </div>
-                   <a href="https://faucet.somnia.network" target="_blank" rel="noopener noreferrer" className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded-full font-bold shadow-lg transition-all">Get STT Tokens</a>
+                   <a href="https://faucet.somnia.network" target="_blank" rel="noopener noreferrer" className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded-full font-bold shadow-lg transition-all flex items-center gap-2">
+                     Visit Faucet <Globe className="w-4 h-4" />
+                   </a>
                 </div>
              )}
 
@@ -224,7 +235,7 @@ export default function App() {
                           <div className="relative z-10">
                              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4"><Bot className="w-6 h-6 text-emerald-400" /></div>
                              <h3 className="text-xl font-bold text-white mb-2">VS Palace Bots</h3>
-                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Hone your strategy against AI opponents.</p>
+                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Hone your strategy against AI opponents in the training pits.</p>
                           </div>
                        </button>
                      )}
@@ -247,7 +258,7 @@ export default function App() {
                           <div className="relative z-10">
                              <div className="w-12 h-12 rounded-2xl bg-purple-500/20 flex items-center justify-center mb-4"><Smartphone className="w-6 h-6 text-purple-400" /></div>
                              <h3 className="text-xl font-bold text-white mb-2">Local Duel</h3>
-                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Pass & Play with friends on one device.</p>
+                             <p className="text-slate-400 text-sm leading-relaxed max-w-[80%]">Pass & Play with friends on a single device at the tavern.</p>
                           </div>
                        </button>
                      )}
@@ -260,7 +271,7 @@ export default function App() {
                       <div className="absolute inset-0 bg-slate-950/60 z-20 flex items-center justify-center"><span className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider shadow-lg uppercase">Coming Soon</span></div>
                       <div className="relative z-10">
                          <div className="flex items-center gap-3 mb-2"><div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center"><Zap className="w-5 h-5 text-blue-400" /></div><h3 className="text-lg font-bold text-white">Ranked Match</h3></div>
-                         <p className="text-xs text-slate-400">Competitive on-chain matchmaking.</p>
+                         <p className="text-xs text-slate-400">Competitive on-chain matchmaking for glory and STT rewards.</p>
                       </div>
                    </div>
                 </div>

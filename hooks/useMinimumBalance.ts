@@ -19,8 +19,12 @@ export function useMinimumBalance() {
     }
 
     if (!isLoading && balanceData) {
+      // Thirdweb's displayValue is already pre-formatted with decimals
       const displayVal = parseFloat(balanceData.displayValue);
       setIsEligible(displayVal >= MIN_STT_REQUIRED);
+      setChecking(false);
+    } else if (!isLoading && !balanceData) {
+      setIsEligible(false);
       setChecking(false);
     }
   }, [address, balanceData, isLoading]);

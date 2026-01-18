@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { ThirdwebProvider, MetaMaskWallet, CoinbaseWallet, WalletConnect, SafeWallet } from "@thirdweb-dev/react";
+import { ThirdwebProvider, MetaMaskWallet, CoinbaseWallet, WalletConnect, SafeWallet, darkTheme } from "@thirdweb-dev/react";
 
-// Somnia Testnet Configuration
+// Somnia Testnet Configuration - Specifically configured for Thirdweb
 export const SOMNIA_CHAIN = {
   chainId: 50312,
   rpc: ["https://dream-rpc.somnia.network"],
@@ -38,10 +38,20 @@ export function Providers({ children }: { children?: React.ReactNode }) {
     return null;
   }
 
+  // Ensure environment variable is handled gracefully
+  const clientId = process.env.NEXT_PUBLIC_THIRDWEB_PROJECT_ID || "";
+
   return (
     <ThirdwebProvider
       activeChain={SOMNIA_CHAIN}
-      clientId={process.env.NEXT_PUBLIC_THIRDWEB_PROJECT_ID}
+      clientId={clientId}
+      theme={darkTheme({
+        colors: {
+          accentText: "#f59e0b", // Amber 500
+          accentButtonBg: "#f59e0b",
+          primaryButtonBg: "#1e293b", // Slate 800
+        },
+      })}
       supportedWallets={[
         MetaMaskWallet(),
         CoinbaseWallet(),
