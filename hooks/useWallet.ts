@@ -23,8 +23,7 @@ export function useWallet() {
   });
 
   const updateBalance = useCallback(async (address: string) => {
-    // Fix: Access ethereum via window as any to resolve "Property 'ethereum' does not exist on type 'Window'" errors.
-    if (!(window as any).ethereum) return;
+    if (!(window as any).ethereum || !(window as any).ethers) return;
     try {
       const provider = new (window as any).ethers.BrowserProvider((window as any).ethereum);
       const balance = await provider.getBalance(address);
@@ -35,7 +34,6 @@ export function useWallet() {
   }, []);
 
   const connect = useCallback(async () => {
-    // Fix: Access ethereum via window as any to resolve property access errors.
     if (!(window as any).ethereum) {
       setState(prev => ({ ...prev, error: "MetaMask or a Web3 wallet is not installed." }));
       return;
@@ -57,8 +55,9 @@ export function useWallet() {
         isConnecting: false,
       }));
 
-      updateBalance(address);
+      await updateBalance(address);
     } catch (err: any) {
+      console.error("Connection error:", err);
       setState(prev => ({
         ...prev,
         isConnecting: false,
@@ -79,7 +78,6 @@ export function useWallet() {
   }, []);
 
   const switchChain = useCallback(async () => {
-    // Fix: Access ethereum via window as any to resolve property access errors.
     if (!(window as any).ethereum) return;
     try {
       await (window as any).ethereum.request({
@@ -87,7 +85,6 @@ export function useWallet() {
         params: [{ chainId: `0x${SOMNIA_CHAIN_ID.toString(16)}` }],
       });
     } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask.
       if (switchError.code === 4902) {
         try {
           await (window as any).ethereum.request({
@@ -109,22 +106,49 @@ export function useWallet() {
     }
   }, []);
 
+  // Check for existing connection on mount
   useEffect(() => {
-    // Fix: Access ethereum via window as any to resolve property access errors.
+    const checkConnection = async () => {
+      if ((window as any).ethereum) {
+        try {
+          const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
+          if (accounts.length > 0) {
+            const network = await (window as any).ethereum.request({ method: 'eth_chainId' });
+            const chainId = parseInt(network, 16);
+            setState(prev => ({ ...prev, address: accounts[0], isConnected: true, chainId }));
+            updateBalance(accounts[0]);
+          }
+        } catch (e) {
+          console.error("Initial check failed", e);
+        }
+      }
+    };
+    checkConnection();
+  }, [updateBalance]);
+
+  useEffect(() => {
     if ((window as any).ethereum) {
-      (window as any).ethereum.on('accountsChanged', (accounts: string[]) => {
+      const handleAccounts = (accounts: string[]) => {
         if (accounts.length > 0) {
           setState(prev => ({ ...prev, address: accounts[0], isConnected: true }));
           updateBalance(accounts[0]);
         } else {
           disconnect();
         }
-      });
+      };
 
-      (window as any).ethereum.on('chainChanged', (network: string) => {
+      const handleChain = (network: string) => {
         const chainId = parseInt(network, 16);
         setState(prev => ({ ...prev, chainId }));
-      });
+      };
+
+      (window as any).ethereum.on('accountsChanged', handleAccounts);
+      (window as any).ethereum.on('chainChanged', handleChain);
+
+      return () => {
+        (window as any).ethereum.removeListener('accountsChanged', handleAccounts);
+        (window as any).ethereum.removeListener('chainChanged', handleChain);
+      };
     }
   }, [disconnect, updateBalance]);
 

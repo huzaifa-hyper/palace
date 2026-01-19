@@ -20,6 +20,8 @@ import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
 import { audioService } from '../services/audioService';
 import { MOCK_PLAYER_NAMES } from '../constants';
+import { useMinimumBalance } from '../hooks/useMinimumBalance';
+import { useWallet } from '../hooks/useWallet';
 
 const getCardValue = (rank: Rank): number => {
   const values: Record<string, number> = {
@@ -64,7 +66,16 @@ export const Game: React.FC<{
   userProfile: UserProfile, 
   onExit: () => void 
 }> = ({ mode, playerCount, userProfile, onExit }) => {
-  // Unified state to prevent stale closure bugs in multi-step bot turns
+  const { isConnected } = useWallet();
+  const { isEligible } = useMinimumBalance();
+
+  // Failsafe: If eligibility is lost during the game, exit to lobby
+  useEffect(() => {
+    if (!isConnected || !isEligible) {
+      onExit();
+    }
+  }, [isConnected, isEligible, onExit]);
+
   const [game, setGame] = useState<GameState>(() => {
     const newDeck = createDeck();
     const initialPlayers: Player[] = [];
@@ -98,22 +109,19 @@ export const Game: React.FC<{
   const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const botThinkingRef = useRef<number>(-1);
+  
+  const botIsThinkingRef = useRef<boolean>(false);
+  const lastProcessedActionRef = useRef<number>(-1);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [game.logs]);
-
-  const addLog = (msg: string) => {
-    setGame(prev => ({ ...prev, logs: [...prev.logs.slice(-15), msg] }));
-  };
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
     if (card.rank === Rank.Seven) return true;
     if (currentPile.length === 0) return true;
-
     const topCard = currentPile[currentPile.length - 1];
     if (topCard.rank === Rank.Two) return true;
     return card.value >= topCard.value;
@@ -131,7 +139,6 @@ export const Game: React.FC<{
 
       if (cardsToPlay.length === 0) return prev;
 
-      // Logic check
       if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
         if (source === 'HIDDEN') {
           try { audioService.playError(); } catch(e) {}
@@ -175,7 +182,6 @@ export const Game: React.FC<{
       } else if (rank === Rank.Two) {
         try { audioService.playReset(); } catch(e) {}
         newLog = `${player.name} reset with a 2. 🔄`;
-        // 2 is transparent; keeps previous constraint if any
         nextIdx = pIdx;
       } else if (rank === Rank.Ace) {
         try { audioService.playCardPlace(); } catch(e) {}
@@ -188,10 +194,9 @@ export const Game: React.FC<{
         nextConstraint = 'LOWER_THAN_7';
       } else {
         try { audioService.playCardPlace(); } catch(e) {}
-        nextConstraint = 'NONE';
+        nextConstraint = 'NONE'; 
       }
 
-      // Update Player State (Hand removal + Drawing)
       const nextPlayers = [...prev.players];
       const p = { ...nextPlayers[pIdx] };
       if (source === 'HAND') p.hand = p.hand.filter(c => !cardIds.includes(c.id));
@@ -206,7 +211,6 @@ export const Game: React.FC<{
         nextDeck = nextDeck.slice(drawn.length);
       }
 
-      // Stronghold pickup check
       if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
         p.hand = [...p.faceUpCards];
         p.faceUpCards = [];
@@ -215,7 +219,6 @@ export const Game: React.FC<{
 
       nextPlayers[pIdx] = p;
 
-      // Win Check
       let finalWinner = prev.winner;
       let finalPhase = prev.phase;
       if (p.hiddenCards.length === 0 && p.faceUpCards.length === 0 && p.hand.length === 0) {
@@ -244,13 +247,6 @@ export const Game: React.FC<{
 
   const pickUpPile = () => {
     setGame(prev => {
-      if (prev.pile.length === 0) {
-        return {
-          ...prev,
-          turnIndex: (prev.turnIndex + 1) % playerCount,
-          actionCount: prev.actionCount + 1
-        };
-      }
       const nextPlayers = [...prev.players];
       const p = { ...nextPlayers[prev.turnIndex] };
       p.hand = [...p.hand, ...prev.pile];
@@ -303,12 +299,13 @@ export const Game: React.FC<{
     setSelectedSource(null);
   };
 
-  // Bot Turn Logic
   useEffect(() => {
     const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex].isHuman && !game.winner;
-    if (!isBotTurn || botThinkingRef.current === game.actionCount) return;
+    if (!isBotTurn || botIsThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
 
-    botThinkingRef.current = game.actionCount;
+    botIsThinkingRef.current = true;
+    lastProcessedActionRef.current = game.actionCount;
+    const thinkingTime = 1000 + Math.random() * 600;
 
     const timer = setTimeout(() => {
       const bot = game.players[game.turnIndex];
@@ -326,8 +323,8 @@ export const Game: React.FC<{
       }
 
       const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
+      
       if (legal.length > 0) {
-        // AI Strategy: Play lowest legal non-power cards first
         const nonPower = legal.filter(c => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         const chosen = (nonPower.length > 0 ? nonPower : legal).sort((a, b) => a.value - b.value)[0];
         const set = pool.filter(c => c.rank === chosen.rank);
@@ -335,9 +332,13 @@ export const Game: React.FC<{
       } else {
         pickUpPile();
       }
-    }, 1000);
+      botIsThinkingRef.current = false;
+    }, thinkingTime);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      botIsThinkingRef.current = false;
+    };
   }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {

@@ -16,7 +16,9 @@ import {
   ShieldCheck,
   Power,
   Users,
-  Zap
+  Zap,
+  Lock,
+  ArrowRight
 } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
@@ -25,7 +27,7 @@ import { RulesSheet } from './components/RulesSheet';
 import { UserProfile, GameMode } from './types';
 import { SOMNIA_CHAIN_ID, web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
-import { useMinimumBalance } from './hooks/useMinimumBalance';
+import { useMinimumBalance, MIN_STT_REQUIRED } from './hooks/useMinimumBalance';
 import { useWallet } from './hooks/useWallet';
 
 export default function App() {
@@ -78,6 +80,11 @@ export default function App() {
   };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
+    // Strict Guard: Must be connected and eligible
+    if (!isConnected || !isEligible) {
+      setActiveTab('lobby');
+      return;
+    }
     p2pService.destroy(); 
     setGameConfig({ mode, playerCount });
     setOfflineSetupMode(null);
@@ -100,8 +107,8 @@ export default function App() {
     );
   }
 
-  // --- CRITICAL: Rendering the Game Component ---
-  if (gameConfig && userProfile) {
+  // If game is active, but eligibility is lost, the Game component should handle or this wrapper
+  if (gameConfig && userProfile && isConnected && isEligible) {
     return (
       <Game 
         mode={gameConfig.mode} 
@@ -132,6 +139,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-felt text-slate-200 selection:bg-amber-500/30 font-sans pb-safe-area-bottom">
       <main className="max-w-7xl mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)]">
+        {/* Global Access Guard: If not eligible, only show the Lock Screen in Lobby */}
         {activeTab === 'lobby' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
              <div className="bg-slate-900/60 backdrop-blur-xl p-4 md:p-6 rounded-[2rem] border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
@@ -178,67 +186,99 @@ export default function App() {
                </div>
              )}
 
-             <div className="grid md:grid-cols-2 gap-8">
-                <div className="space-y-6">
-                   <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Smartphone className="w-4 h-4" /> Combat Training</div>
-                   <div className="grid gap-6">
-                     <div className="relative group">
-                       {offlineSetupMode === 'VS_BOT' ? (
-                         <div className="bg-slate-900 border-2 border-emerald-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(16,185,129,0.1)]">
-                            <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-emerald-400">Select Opponents</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
-                            <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-800 hover:bg-emerald-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
-                         </div>
-                       ) : (
-                         <button 
-                          onClick={() => setOfflineSetupMode('VS_BOT')} 
-                          className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
-                         >
-                            <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-32 h-32 text-white" /></div>
-                            <div className="relative z-10">
-                               <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20"><Bot className="w-7 h-7 text-emerald-400" /></div>
-                               <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">VS Palace AI</h3>
-                               <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Train your tactical maneuvers against the Kingdom's finest automated strategists.</p>
-                            </div>
-                         </button>
-                       )}
-                     </div>
+             {isConnected && isEligible ? (
+               <div className="grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-500">
+                  <div className="space-y-6">
+                     <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Smartphone className="w-4 h-4" /> Combat Training</div>
+                     <div className="grid gap-6">
+                       <div className="relative group">
+                         {offlineSetupMode === 'VS_BOT' ? (
+                           <div className="bg-slate-900 border-2 border-emerald-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(16,185,129,0.1)]">
+                              <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-emerald-400">Select Opponents</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
+                              <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-800 hover:bg-emerald-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
+                           </div>
+                         ) : (
+                           <button 
+                            onClick={() => setOfflineSetupMode('VS_BOT')} 
+                            className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
+                           >
+                              <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-32 h-32 text-white" /></div>
+                              <div className="relative z-10">
+                                 <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20"><Bot className="w-7 h-7 text-emerald-400" /></div>
+                                 <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">VS Palace AI</h3>
+                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Train your tactical maneuvers against the Kingdom's finest automated strategists.</p>
+                              </div>
+                           </button>
+                         )}
+                       </div>
 
-                     <div className="relative group">
-                       {offlineSetupMode === 'PASS_AND_PLAY' ? (
-                         <div className="bg-slate-900 border-2 border-purple-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(168,85,247,0.1)]">
-                            <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-purple-400">Total Rulers</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
-                            <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-800 hover:bg-purple-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
-                         </div>
-                       ) : (
-                         <button 
-                          onClick={() => setOfflineSetupMode('PASS_AND_PLAY')} 
-                          className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
-                         >
-                            <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 text-white" /></div>
-                            <div className="relative z-10">
-                               <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
-                               <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">Local Skirmish</h3>
-                               <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Settle royal disputes face-to-face on a single device. Honor is optional.</p>
-                            </div>
-                         </button>
-                       )}
+                       <div className="relative group">
+                         {offlineSetupMode === 'PASS_AND_PLAY' ? (
+                           <div className="bg-slate-900 border-2 border-purple-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(168,85,247,0.1)]">
+                              <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-purple-400">Total Rulers</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
+                              <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-800 hover:bg-purple-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
+                           </div>
+                         ) : (
+                           <button 
+                            onClick={() => setOfflineSetupMode('PASS_AND_PLAY')} 
+                            className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
+                           >
+                              <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 text-white" /></div>
+                              <div className="relative z-10">
+                                 <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
+                                 <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">Local Skirmish</h3>
+                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Settle royal disputes face-to-face on a single device. Honor is optional.</p>
+                              </div>
+                           </button>
+                         )}
+                       </div>
                      </div>
-                   </div>
-                </div>
+                  </div>
 
-                <div className="space-y-6 h-full flex flex-col">
-                   <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Globe className="w-4 h-4" /> Global Sovereignty</div>
-                   <div className="flex-1 bg-slate-900/40 p-10 rounded-[2.5rem] border border-blue-500/10 relative overflow-hidden backdrop-blur-sm flex flex-col justify-center text-center">
-                      <div className="absolute inset-0 bg-slate-950/80 z-20 flex flex-col items-center justify-center gap-6 p-8">
-                         <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 animate-pulse"><Globe size={40} className="text-blue-400" /></div>
-                         <div className="space-y-2">
-                            <span className="bg-blue-600 text-white px-6 py-2 rounded-full text-[10px] font-black tracking-[0.3em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
-                            <p className="text-xs text-slate-400 font-light max-w-xs mx-auto">Ranked matches with STT stakes and global leaderboards are being forged by the architects.</p>
-                         </div>
+                  <div className="space-y-6 h-full flex flex-col">
+                     <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Globe className="w-4 h-4" /> Global Sovereignty</div>
+                     <div className="flex-1 bg-slate-900/40 p-10 rounded-[2.5rem] border border-blue-500/10 relative overflow-hidden backdrop-blur-sm flex flex-col justify-center text-center">
+                        <div className="absolute inset-0 bg-slate-950/80 z-20 flex flex-col items-center justify-center gap-6 p-8">
+                           <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 animate-pulse"><Globe size={40} className="text-blue-400" /></div>
+                           <div className="space-y-2">
+                              <span className="bg-blue-600 text-white px-6 py-2 rounded-full text-[10px] font-black tracking-[0.3em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
+                              <p className="text-xs text-slate-400 font-light max-w-xs mx-auto">Ranked matches with STT stakes and global leaderboards are being forged by the architects.</p>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+             ) : (
+               <div className="bg-slate-900/60 backdrop-blur-3xl border border-amber-500/20 p-12 md:p-20 rounded-[3rem] text-center space-y-8 animate-in fade-in duration-500">
+                  <div className="relative inline-block">
+                    <Lock className="w-20 h-20 text-slate-700 mx-auto" />
+                    <div className="absolute -inset-4 bg-amber-500/5 blur-2xl rounded-full -z-10"></div>
+                  </div>
+                  <div className="max-w-md mx-auto space-y-4">
+                    <h3 className="text-3xl font-playfair font-black text-amber-100">Access Restricted</h3>
+                    <p className="text-slate-400 text-sm font-light leading-relaxed">
+                      To enter the combat grounds, a Ruler must be verified. 
+                      Connect your Somnia wallet and ensure a treasury of at least <strong>{MIN_STT_REQUIRED} STT</strong>.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                    {!isConnected ? (
+                      <button onClick={connect} className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3">
+                        <Wallet size={16} /> Connect Wallet
+                      </button>
+                    ) : !isEligible ? (
+                      <div className="space-y-4">
+                        <div className="bg-red-500/10 border border-red-500/20 px-6 py-3 rounded-xl text-red-400 text-xs font-bold uppercase tracking-widest">
+                          Insufficient Funds: {parseFloat(balance).toFixed(3)} / {MIN_STT_REQUIRED} STT
+                        </div>
+                        <a href="https://testnet.somnia.network/" target="_blank" rel="noopener noreferrer" className="bg-slate-800 hover:bg-slate-700 text-amber-500 px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border border-amber-500/20 flex items-center justify-center gap-3">
+                          Refill Treasury <ArrowRight size={16} />
+                        </a>
                       </div>
-                   </div>
-                </div>
-             </div>
+                    ) : null}
+                  </div>
+               </div>
+             )}
           </div>
         )}
         {activeTab === 'rules' && <RulesSheet />}
