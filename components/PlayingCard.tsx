@@ -85,16 +85,19 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
         flex flex-col relative
       `}
     >
+      {/* Corner Rank/Suit Top */}
       <div className="absolute top-1 left-1 flex flex-col items-center leading-none">
         <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
         <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
+      {/* Corner Rank/Suit Bottom */}
       <div className="absolute bottom-1 right-1 flex flex-col items-center leading-none transform rotate-180">
         <span className="font-playfair text-[11px] sm:text-base md:text-xl font-black tracking-tight">{rank}</span>
         <span className="text-[7px] sm:text-[10px] md:text-xs -mt-0.5 font-bold">{suit}</span>
       </div>
 
+      {/* Center Detail */}
       <div className="flex-1 flex flex-col items-center justify-center pointer-events-none p-2">
         {PowerIcon ? (
           <div className={`flex flex-col items-center justify-center ${powerColor} opacity-90 scale-90 md:scale-100`}>

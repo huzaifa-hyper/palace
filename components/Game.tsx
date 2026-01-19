@@ -45,32 +45,29 @@ const createDeck = (): Card[] => {
   return deck.sort(() => Math.random() - 0.5);
 };
 
+interface GameState {
+  players: Player[];
+  deck: Card[];
+  pile: Card[];
+  pileRotations: number[];
+  turnIndex: number;
+  phase: GamePhase;
+  activeConstraint: 'NONE' | 'LOWER_THAN_7';
+  winner: string | null;
+  logs: string[];
+  actionCount: number;
+}
+
 export const Game: React.FC<{ 
   mode: GameMode, 
   playerCount: number, 
   userProfile: UserProfile, 
   onExit: () => void 
 }> = ({ mode, playerCount, userProfile, onExit }) => {
-  const [phase, setPhase] = useState<GamePhase>('SETUP');
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [deck, setDeck] = useState<Card[]>([]);
-  const [pile, setPile] = useState<Card[]>([]);
-  const [turnIndex, setTurnIndex] = useState<number>(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [activeConstraint, setActiveConstraint] = useState<'NONE' | 'LOWER_THAN_7'>('NONE');
-  const [winner, setWinner] = useState<string | null>(null);
-  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
-  const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | null>(null);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [pileRotations, setPileRotations] = useState<number[]>([]);
-  const [lastActionId, setLastActionId] = useState<number>(0);
-
-  const logEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
+  // Unified state to prevent stale closure bugs in multi-step bot turns
+  const [game, setGame] = useState<GameState>(() => {
     const newDeck = createDeck();
     const initialPlayers: Player[] = [];
-
     for (let i = 0; i < playerCount; i++) {
       const isHuman = i === 0;
       initialPlayers.push({
@@ -83,211 +80,238 @@ export const Game: React.FC<{
         hasSelectedSetup: false
       });
     }
+    return {
+      players: initialPlayers,
+      deck: newDeck,
+      pile: [],
+      pileRotations: [],
+      turnIndex: 0,
+      phase: 'SETUP',
+      activeConstraint: 'NONE',
+      winner: null,
+      logs: ["Treasury distributed. Secure your Stronghold!"],
+      actionCount: 0
+    };
+  });
 
-    setPlayers(initialPlayers);
-    setDeck(newDeck);
-    addLog("Treasury distributed. Secure your Stronghold!");
-    try { audioService.playReset(); } catch(e) {}
-  }, [playerCount, userProfile.name]);
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | null>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const botThinkingRef = useRef<number>(-1);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [game.logs]);
 
-  const addLog = (msg: string) => setLogs(prev => [...prev.slice(-15), msg]);
+  const addLog = (msg: string) => {
+    setGame(prev => ({ ...prev, logs: [...prev.logs.slice(-15), msg] }));
+  };
 
-  const isLegalMove = (card: Card): boolean => {
-    if (card.rank === Rank.Two || card.rank === Rank.Ten || card.rank === Rank.Seven) return true;
-    if (pile.length === 0) return true;
-    const topCard = pile[pile.length - 1];
-    
+  const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
+    if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
+    if (constraint === 'LOWER_THAN_7') return card.value <= 7;
+    if (card.rank === Rank.Seven) return true;
+    if (currentPile.length === 0) return true;
+
+    const topCard = currentPile[currentPile.length - 1];
     if (topCard.rank === Rank.Two) return true;
-    
-    if (activeConstraint === 'LOWER_THAN_7') return card.value <= 7;
     return card.value >= topCard.value;
   };
 
   const playCards = (cardIds: string[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
-    const pIdx = turnIndex;
-    const player = players[pIdx];
-    let cardsToPlay: Card[] = [];
+    setGame(prev => {
+      const pIdx = prev.turnIndex;
+      const player = prev.players[pIdx];
+      let cardsToPlay: Card[] = [];
 
-    if (source === 'HAND') cardsToPlay = player.hand.filter(c => cardIds.includes(c.id));
-    else if (source === 'FACEUP') cardsToPlay = player.faceUpCards.filter(c => cardIds.includes(c.id));
-    else if (source === 'HIDDEN') cardsToPlay = player.hiddenCards.filter(c => cardIds.includes(c.id));
+      if (source === 'HAND') cardsToPlay = player.hand.filter(c => cardIds.includes(c.id));
+      else if (source === 'FACEUP') cardsToPlay = player.faceUpCards.filter(c => cardIds.includes(c.id));
+      else if (source === 'HIDDEN') cardsToPlay = player.hiddenCards.filter(c => cardIds.includes(c.id));
 
-    if (cardsToPlay.length === 0) return;
+      if (cardsToPlay.length === 0) return prev;
 
-    if (!isLegalMove(cardsToPlay[0])) {
-      if (source === 'HIDDEN') {
-        addLog(`${player.name} failed Blind Siege: ${cardsToPlay[0].rank}${cardsToPlay[0].suit}! 🚫`);
-        
-        setPlayers(prev => {
-          const next = [...prev];
-          const p = { ...next[pIdx] };
+      // Logic check
+      if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
+        if (source === 'HIDDEN') {
+          try { audioService.playError(); } catch(e) {}
+          const nextPlayers = [...prev.players];
+          const p = { ...nextPlayers[pIdx] };
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
-          p.hand = [...p.hand, ...cardsToPlay, ...pile];
-          next[pIdx] = p;
-          return next;
-        });
+          p.hand = [...p.hand, ...cardsToPlay, ...prev.pile];
+          nextPlayers[pIdx] = p;
 
-        setPile([]);
-        setPileRotations([]);
-        setActiveConstraint('NONE');
-        setSelectedCardIds([]);
-        setSelectedSource(null);
-        setTurnIndex((turnIndex + 1) % playerCount);
-        setLastActionId(prev => prev + 1);
+          return {
+            ...prev,
+            players: nextPlayers,
+            pile: [],
+            pileRotations: [],
+            activeConstraint: 'NONE',
+            turnIndex: (prev.turnIndex + 1) % playerCount,
+            actionCount: prev.actionCount + 1,
+            logs: [...prev.logs, `${player.name} failed Blind Siege: ${cardsToPlay[0].rank}${cardsToPlay[0].suit}! 🚫`]
+          };
+        }
         try { audioService.playError(); } catch(e) {}
-        return;
+        return prev;
       }
-      try { audioService.playError(); } catch(e) {}
-      return;
-    }
 
-    const rank = cardsToPlay[0].rank;
-    const newRots = cardsToPlay.map(() => Math.random() * 40 - 20);
-    
-    let nextIdx = (turnIndex + 1) % playerCount;
-    let nextConstraint: 'NONE' | 'LOWER_THAN_7' = 'NONE';
-
-    if (rank === Rank.Ten) {
-      try { audioService.playBurn(); } catch(e) {}
-      addLog(`${player.name} BURNED the pile! 🔥`);
-      setPile([]);
-      setPileRotations([]);
-      nextIdx = pIdx; 
-    } else if (rank === Rank.Two) {
-      try { audioService.playReset(); } catch(e) {}
-      addLog(`${player.name} reset the cycle. 🔄`);
-      setPile(prev => [...prev, ...cardsToPlay]);
-      setPileRotations(prev => [...prev, ...newRots]);
-      nextIdx = pIdx;
-    } else if (rank === Rank.Ace) {
-      try { audioService.playCardPlace(); } catch(e) {}
-      addLog(`${player.name} played the high Ace. Play again! 👑`);
-      setPile(prev => [...prev, ...cardsToPlay]);
-      setPileRotations(prev => [...prev, ...newRots]);
-      nextIdx = pIdx; 
-    } else if (rank === Rank.Seven) {
-      try { audioService.playCardPlace(); } catch(e) {}
-      addLog(`Next ruler must play ≤ 7! 📉`);
-      setPile(prev => [...prev, ...cardsToPlay]);
-      setPileRotations(prev => [...prev, ...newRots]);
-      nextConstraint = 'LOWER_THAN_7';
-    } else {
-      try { audioService.playCardPlace(); } catch(e) {}
-      addLog(`${player.name} played ${cardsToPlay.length}x ${rank}.`);
-      setPile(prev => [...prev, ...cardsToPlay]);
-      setPileRotations(prev => [...prev, ...newRots]);
-    }
-
-    setActiveConstraint(nextConstraint);
-    
-    setPlayers(prev => {
-      const next = [...prev];
-      const p = { ...next[pIdx] };
+      const rank = cardsToPlay[0].rank;
+      const newRots = cardsToPlay.map(() => Math.random() * 40 - 20);
       
+      let nextIdx = (prev.turnIndex + 1) % playerCount;
+      let nextConstraint: 'NONE' | 'LOWER_THAN_7' = prev.activeConstraint;
+      let nextPile = [...prev.pile, ...cardsToPlay];
+      let nextPileRots = [...prev.pileRotations, ...newRots];
+      let newLog = `${player.name} played ${cardsToPlay.length}x ${rank}.`;
+
+      if (rank === Rank.Ten) {
+        try { audioService.playBurn(); } catch(e) {}
+        newLog = `${player.name} BURNED the pile! 🔥`;
+        nextPile = [];
+        nextPileRots = [];
+        nextConstraint = 'NONE';
+        nextIdx = pIdx; 
+      } else if (rank === Rank.Two) {
+        try { audioService.playReset(); } catch(e) {}
+        newLog = `${player.name} reset with a 2. 🔄`;
+        // 2 is transparent; keeps previous constraint if any
+        nextIdx = pIdx;
+      } else if (rank === Rank.Ace) {
+        try { audioService.playCardPlace(); } catch(e) {}
+        newLog = `${player.name} played an Ace. Play again! 👑`;
+        nextConstraint = 'NONE';
+        nextIdx = pIdx; 
+      } else if (rank === Rank.Seven) {
+        try { audioService.playCardPlace(); } catch(e) {}
+        newLog = `Next ruler must play ≤ 7! 📉`;
+        nextConstraint = 'LOWER_THAN_7';
+      } else {
+        try { audioService.playCardPlace(); } catch(e) {}
+        nextConstraint = 'NONE';
+      }
+
+      // Update Player State (Hand removal + Drawing)
+      const nextPlayers = [...prev.players];
+      const p = { ...nextPlayers[pIdx] };
       if (source === 'HAND') p.hand = p.hand.filter(c => !cardIds.includes(c.id));
       else if (source === 'FACEUP') p.faceUpCards = p.faceUpCards.filter(c => !cardIds.includes(c.id));
       else if (source === 'HIDDEN') p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
 
+      let nextDeck = [...prev.deck];
       const needed = 3 - p.hand.length;
-      if (needed > 0 && deck.length > 0) {
-        const drawn = deck.slice(0, Math.min(needed, deck.length));
+      if (needed > 0 && nextDeck.length > 0) {
+        const drawn = nextDeck.slice(0, Math.min(needed, nextDeck.length));
         p.hand = [...p.hand, ...drawn];
+        nextDeck = nextDeck.slice(drawn.length);
       }
 
-      if (p.hand.length === 0 && (deck.length - Math.max(0, 3 - player.hand.length)) <= 0 && p.faceUpCards.length > 0) {
+      // Stronghold pickup check
+      if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
         p.hand = [...p.faceUpCards];
         p.faceUpCards = [];
-        addLog(`${p.name} seized their Stronghold! 🏰`);
+        newLog += ` ${p.name} seized their Stronghold! 🏰`;
       }
-      
-      next[pIdx] = p;
-      return next;
-    });
 
-    setDeck(prev => {
-      const needed = 3 - player.hand.length;
-      return prev.slice(Math.max(0, Math.min(needed, prev.length)));
-    });
+      nextPlayers[pIdx] = p;
 
+      // Win Check
+      let finalWinner = prev.winner;
+      let finalPhase = prev.phase;
+      if (p.hiddenCards.length === 0 && p.faceUpCards.length === 0 && p.hand.length === 0) {
+        finalWinner = p.name;
+        finalPhase = 'GAME_OVER';
+        try { audioService.playVictory(); } catch(e) {}
+      }
+
+      return {
+        ...prev,
+        players: nextPlayers,
+        deck: nextDeck,
+        pile: nextPile,
+        pileRotations: nextPileRots,
+        turnIndex: nextIdx,
+        activeConstraint: nextConstraint,
+        winner: finalWinner,
+        phase: finalPhase,
+        logs: [...prev.logs.slice(-15), newLog],
+        actionCount: prev.actionCount + 1
+      };
+    });
     setSelectedCardIds([]);
     setSelectedSource(null);
-    setLastActionId(prev => prev + 1);
-
-    const updatedPlayer = players[pIdx]; 
-    if (updatedPlayer.hiddenCards.length === 0 && updatedPlayer.faceUpCards.length === 0 && updatedPlayer.hand.length <= cardsToPlay.length) {
-        if (updatedPlayer.hand.length - cardsToPlay.length <= 0) {
-           setWinner(updatedPlayer.name);
-           setPhase('GAME_OVER');
-           try { audioService.playVictory(); } catch(e) {}
-        }
-    }
-
-    setTurnIndex(nextIdx);
   };
 
   const pickUpPile = () => {
-    if (pile.length === 0 && phase === 'PLAYING') {
-      setTurnIndex((turnIndex + 1) % playerCount);
-      setLastActionId(prev => prev + 1);
-      return;
-    }
-    
-    setPlayers(prev => {
-      const next = [...prev];
-      const p = { ...next[turnIndex] };
-      p.hand = [...p.hand, ...pile];
-      next[turnIndex] = p;
-      return next;
+    setGame(prev => {
+      if (prev.pile.length === 0) {
+        return {
+          ...prev,
+          turnIndex: (prev.turnIndex + 1) % playerCount,
+          actionCount: prev.actionCount + 1
+        };
+      }
+      const nextPlayers = [...prev.players];
+      const p = { ...nextPlayers[prev.turnIndex] };
+      p.hand = [...p.hand, ...prev.pile];
+      nextPlayers[prev.turnIndex] = p;
+
+      return {
+        ...prev,
+        players: nextPlayers,
+        pile: [],
+        pileRotations: [],
+        activeConstraint: 'NONE',
+        turnIndex: (prev.turnIndex + 1) % playerCount,
+        actionCount: prev.actionCount + 1,
+        logs: [...prev.logs.slice(-15), `${p.name} inherited the pile.`]
+      };
     });
-    
-    addLog(`${players[turnIndex].name} inherited the pile.`);
-    setPile([]);
-    setPileRotations([]);
-    setActiveConstraint('NONE');
-    setTurnIndex((turnIndex + 1) % playerCount);
     setSelectedCardIds([]);
     setSelectedSource(null);
-    setLastActionId(prev => prev + 1);
     try { audioService.playError(); } catch(e) {}
   };
 
   const confirmSetup = () => {
     if (selectedCardIds.length !== 3) return;
-    setPlayers(prev => {
-      const next = [...prev];
-      const user = { ...next[0] };
+    setGame(prev => {
+      const nextPlayers = [...prev.players];
+      const user = { ...nextPlayers[0] };
       user.faceUpCards = user.hand.filter(c => selectedCardIds.includes(c.id));
       user.hand = user.hand.filter(c => !selectedCardIds.includes(c.id));
       user.hasSelectedSetup = true;
-      next[0] = user;
+      nextPlayers[0] = user;
 
       for (let i = 1; i < playerCount; i++) {
-        const bot = { ...next[i] };
+        const bot = { ...nextPlayers[i] };
         const sorted = [...bot.hand].sort((a, b) => b.value - a.value);
         bot.faceUpCards = sorted.slice(0, 3);
         bot.hand = sorted.slice(3);
         bot.hasSelectedSetup = true;
-        next[i] = bot;
+        nextPlayers[i] = bot;
       }
-      return next;
+      try { audioService.playReset(); } catch(e) {}
+      return {
+        ...prev,
+        players: nextPlayers,
+        phase: 'PLAYING',
+        logs: [...prev.logs, "Battle Commenced!"],
+        actionCount: prev.actionCount + 1
+      };
     });
-    setPhase('PLAYING');
     setSelectedCardIds([]);
     setSelectedSource(null);
-    addLog("Battle Commenced!");
-    setLastActionId(prev => prev + 1);
-    try { audioService.playReset(); } catch(e) {}
   };
 
+  // Bot Turn Logic
   useEffect(() => {
-    if (phase !== 'PLAYING' || players[turnIndex]?.isHuman || winner) return;
-    
+    const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex].isHuman && !game.winner;
+    if (!isBotTurn || botThinkingRef.current === game.actionCount) return;
+
+    botThinkingRef.current = game.actionCount;
+
     const timer = setTimeout(() => {
-      const bot = players[turnIndex];
+      const bot = game.players[game.turnIndex];
       let source: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
       let pool = bot.hand;
       
@@ -298,14 +322,12 @@ export const Game: React.FC<{
         } else if (bot.hiddenCards.length > 0) { 
           source = 'HIDDEN'; 
           pool = [bot.hiddenCards[0]]; 
-        } else {
-          setTurnIndex((turnIndex + 1) % playerCount);
-          return;
         }
       }
 
-      const legal = pool.filter(isLegalMove);
+      const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
       if (legal.length > 0) {
+        // AI Strategy: Play lowest legal non-power cards first
         const nonPower = legal.filter(c => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         const chosen = (nonPower.length > 0 ? nonPower : legal).sort((a, b) => a.value - b.value)[0];
         const set = pool.filter(c => c.rank === chosen.rank);
@@ -313,40 +335,34 @@ export const Game: React.FC<{
       } else {
         pickUpPile();
       }
-    }, 1200);
+    }, 1000);
 
     return () => clearTimeout(timer);
-  }, [turnIndex, phase, pile.length, lastActionId, winner]);
+  }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
-    if (phase === 'SETUP' && source === 'HAND') {
+    if (game.phase === 'SETUP' && source === 'HAND') {
       setSelectedCardIds(prev => 
         prev.includes(card.id) ? prev.filter(id => id !== card.id) : prev.length < 3 ? [...prev, card.id] : prev
       );
       setSelectedSource('HAND');
-    } else if (phase === 'PLAYING' && turnIndex === 0) {
+    } else if (game.phase === 'PLAYING' && game.turnIndex === 0) {
       setSelectedCardIds(prev => {
         if (selectedSource !== source) {
           setSelectedSource(source);
           return [card.id];
         }
-        
         if (prev.includes(card.id)) {
           const next = prev.filter(id => id !== card.id);
           if (next.length === 0) setSelectedSource(null);
           return next;
         }
-        
         if (prev.length > 0) {
-          const pool = source === 'HAND' ? players[0].hand : players[0].faceUpCards;
+          const pool = source === 'HAND' ? game.players[0].hand : game.players[0].faceUpCards;
           const firstSelected = pool.find(c => c.id === prev[0]);
-          if (firstSelected && firstSelected.rank === card.rank) {
-            return [...prev, card.id];
-          } else {
-            return [card.id]; 
-          }
+          if (firstSelected && firstSelected.rank === card.rank) return [...prev, card.id];
+          return [card.id]; 
         }
-        
         setSelectedSource(source);
         return [card.id];
       });
@@ -355,34 +371,29 @@ export const Game: React.FC<{
 
   const getActiveSelection = () => {
     if (!selectedSource) return [];
-    const pool = selectedSource === 'HAND' ? players[0]?.hand : players[0]?.faceUpCards;
+    const pool = selectedSource === 'HAND' ? game.players[0]?.hand : game.players[0]?.faceUpCards;
     return pool?.filter(c => selectedCardIds.includes(c.id)) || [];
   };
 
   const currentSelection = getActiveSelection();
-  const isSelectionLegal = currentSelection.length > 0 && isLegalMove(currentSelection[0]);
+  const isSelectionLegal = currentSelection.length > 0 && isLegalMove(currentSelection[0], game.pile, game.activeConstraint);
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
-      
       <header className="h-10 shrink-0 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-[200]">
         <div className="flex items-center gap-2">
           <button onClick={onExit} className="p-1.5 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"><X size={16} /></button>
           <div className="h-4 w-px bg-white/10 mx-1"></div>
-          <h1 className="text-[10px] sm:text-xs font-playfair font-black text-amber-500 tracking-widest uppercase flex items-center gap-1.5">
-            <Zap size={10} className="fill-amber-500" /> Palace Rulers
-          </h1>
+          <h1 className="text-[10px] sm:text-xs font-playfair font-black text-amber-500 tracking-widest uppercase flex items-center gap-1.5"><Zap size={10} className="fill-amber-500" /> Palace Rulers</h1>
         </div>
-        <button onClick={() => setIsMuted(!isMuted)} className="p-2 text-slate-400 hover:text-white transition-all">
-          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-        </button>
+        <button onClick={() => setIsMuted(!isMuted)} className="p-2 text-slate-400 hover:text-white transition-all">{isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
       </header>
 
       <div className="h-12 shrink-0 flex items-center justify-center gap-4 bg-slate-950/40 border-b border-white/5 pointer-events-none">
-        {players.filter(p => !p.isHuman).map(opp => (
-          <div key={opp.id} className={`flex items-center gap-2 transition-all duration-500 ${turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
-             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${turnIndex === opp.id ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'border-slate-700'}`}>
-               <Bot size={16} className={turnIndex === opp.id ? 'text-amber-500' : 'text-slate-600'} />
+        {game.players.filter(p => !p.isHuman).map(opp => (
+          <div key={opp.id} className={`flex items-center gap-2 transition-all duration-500 ${game.turnIndex === opp.id ? 'opacity-100 scale-105' : 'opacity-30'}`}>
+             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${game.turnIndex === opp.id ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'border-slate-700'}`}>
+               <Bot size={16} className={game.turnIndex === opp.id ? 'text-amber-500' : 'text-slate-600'} />
              </div>
              <p className="text-[10px] font-black uppercase text-white tracking-tight">{opp.name} ({opp.hand.length})</p>
           </div>
@@ -390,78 +401,55 @@ export const Game: React.FC<{
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-between min-h-0 overflow-hidden relative py-2">
-        
         <div className="flex-1 w-full flex items-center justify-center relative min-h-0">
           <div className="relative w-40 h-40 md:w-56 md:h-56 flex items-center justify-center">
-             {pile.length === 0 ? (
-                <div className="w-16 md:w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-xl flex items-center justify-center text-white/5">
-                  <Swords size={28} />
-                </div>
+             {game.pile.length === 0 ? (
+                <div className="w-16 md:w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-xl flex items-center justify-center text-white/5"><Swords size={28} /></div>
              ) : (
-                pile.slice(-5).map((card, i) => (
-                  <div key={card.id} className="absolute" style={{ transform: `rotate(${pileRotations[pile.length - 1 - (pile.slice(-5).length - 1 - i)]}deg)` }}>
-                    <PlayingCard {...card} dimmed={turnIndex !== 0} />
+                game.pile.slice(-5).map((card, i) => (
+                  <div key={card.id} className="absolute" style={{ transform: `rotate(${game.pileRotations[game.pile.length - 1 - (game.pile.slice(-5).length - 1 - i)]}deg)` }}>
+                    <PlayingCard {...card} dimmed={game.turnIndex !== 0} />
                   </div>
                 ))
              )}
-             
-             {activeConstraint === 'LOWER_THAN_7' && (
-               <div className="absolute -top-4 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce z-50 shadow-xl">
-                 Must play ≤ 7
-               </div>
+             {game.activeConstraint === 'LOWER_THAN_7' && (
+               <div className="absolute -top-4 bg-emerald-500 text-slate-950 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce z-50 shadow-xl">Must play ≤ 7</div>
              )}
           </div>
         </div>
 
         <div className="w-full shrink-0 flex flex-col items-center gap-3 pb-2">
-          {((phase === 'SETUP' && selectedCardIds.length > 0) || (phase === 'PLAYING' && turnIndex === 0 && selectedCardIds.length > 0)) && (
+          {((game.phase === 'SETUP' && selectedCardIds.length > 0) || (game.phase === 'PLAYING' && game.turnIndex === 0 && selectedCardIds.length > 0)) && (
             <div className="flex flex-col items-center gap-1.5 z-[150] animate-in slide-in-from-bottom-2 duration-300">
               <button 
                 onClick={() => {
-                  if (phase === 'SETUP') confirmSetup();
+                  if (game.phase === 'SETUP') confirmSetup();
                   else if (selectedSource) playCards(selectedCardIds, selectedSource);
                 }} 
-                disabled={phase === 'SETUP' ? selectedCardIds.length !== 3 : !isSelectionLegal}
+                disabled={game.phase === 'SETUP' ? selectedCardIds.length !== 3 : !isSelectionLegal}
                 className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center gap-2 shadow-2xl ${
-                  (phase === 'SETUP' ? selectedCardIds.length === 3 : isSelectionLegal) 
-                  ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400' 
-                  : 'bg-rose-900/40 text-rose-300 cursor-not-allowed grayscale'
+                  (game.phase === 'SETUP' ? selectedCardIds.length === 3 : isSelectionLegal) ? 'bg-amber-500 text-slate-950 scale-110 border-amber-400' : 'bg-rose-900/40 text-rose-300 cursor-not-allowed grayscale'
                 }`}
               >
-                {phase === 'SETUP' ? <ShieldCheck size={14} /> : <Play size={14} />}
-                {phase === 'SETUP' 
-                  ? `Confirm Stronghold (${selectedCardIds.length}/3)` 
-                  : isSelectionLegal ? `Play Selection (${selectedCardIds.length})` : 'Illegal Move'}
+                {game.phase === 'SETUP' ? <ShieldCheck size={14} /> : <Play size={14} />}
+                {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : isSelectionLegal ? `Play Selection (${selectedCardIds.length})` : 'Illegal Move'}
               </button>
             </div>
           )}
 
           <div className="flex justify-center gap-3 p-3 bg-slate-900/60 rounded-[2rem] border border-white/5 shadow-inner backdrop-blur-sm">
-             {players[0]?.hiddenCards.map((c, i) => (
+             {game.players[0]?.hiddenCards.map((c, i) => (
                <div key={`stronghold-${i}`} className="relative">
                   <PlayingCard faceDown className="scale-90 md:scale-100" />
-                  
-                  {players[0].faceUpCards[i] && (
-                    <div className="absolute -top-3 -right-3 z-10 scale-90 md:scale-100 drop-shadow-2xl">
-                       <PlayingCard 
-                         {...players[0].faceUpCards[i]} 
-                         selected={selectedSource === 'FACEUP' && selectedCardIds.includes(players[0].faceUpCards[i].id)}
-                         onClick={() => { 
-                           if (phase === 'PLAYING' && turnIndex === 0 && players[0].hand.length === 0) {
-                             handleCardSelection(players[0].faceUpCards[i], 'FACEUP');
-                           } 
-                         }} 
-                       />
+                  {game.players[0].faceUpCards[i] && (
+                    <div className="absolute -top-3 -right-3 z-[100] scale-90 md:scale-100 drop-shadow-2xl">
+                       <PlayingCard {...game.players[0].faceUpCards[i]} selected={selectedSource === 'FACEUP' && selectedCardIds.includes(game.players[0].faceUpCards[i].id)}
+                         onClick={() => { if (game.phase === 'PLAYING' && game.turnIndex === 0 && game.players[0].hand.length === 0) handleCardSelection(game.players[0].faceUpCards[i], 'FACEUP'); }} />
                     </div>
                   )}
-                  
-                  {turnIndex === 0 && players[0].hand.length === 0 && players[0].faceUpCards.length === 0 && i === 0 && (
-                    <button 
-                      onClick={() => playCards([players[0].hiddenCards[0].id], 'HIDDEN')} 
-                      className="absolute inset-0 bg-amber-500/20 rounded-xl border-2 border-amber-500 animate-pulse flex items-center justify-center z-50"
-                    >
-                      <Eye size={24} className="text-white" />
-                    </button>
+                  {game.turnIndex === 0 && game.players[0].hand.length === 0 && game.players[0].faceUpCards.length === 0 && i === 0 && (
+                    <button onClick={() => playCards([game.players[0].hiddenCards[0].id], 'HIDDEN')} 
+                      className="absolute inset-0 bg-amber-500/20 rounded-xl border-2 border-amber-500 animate-pulse flex items-center justify-center z-50"><Eye size={24} className="text-white" /></button>
                   )}
                </div>
              ))}
@@ -469,48 +457,31 @@ export const Game: React.FC<{
         </div>
       </main>
 
-      <footer className="h-44 md:h-52 bg-slate-950 border-t border-white/10 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
-        {phase === 'PLAYING' && turnIndex === 0 && (
-           <button 
-            onClick={pickUpPile} 
-            className="absolute -top-10 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-xl z-[310] transition-all"
-           >
-            Inherit Pile
-           </button>
+      <footer className="h-52 md:h-60 bg-slate-950 border-t border-white/10 relative flex items-center justify-center shrink-0 z-[300] overflow-visible">
+        {game.phase === 'PLAYING' && game.turnIndex === 0 && (
+           <button onClick={pickUpPile} className="absolute -top-10 left-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400/50 uppercase tracking-widest shadow-xl z-[310] transition-all">Inherit Pile</button>
         )}
-        
-        <div className="w-full h-full flex justify-center items-end overflow-x-auto no-scrollbar scroll-smooth pt-12">
-           <div className="flex items-center gap-0.5 px-10 min-w-max pb-6">
-              {players[0]?.hand.map((card, i) => {
+        <div className="w-full h-full flex justify-center items-end overflow-x-auto no-scrollbar scroll-smooth pt-14">
+           <div className="flex items-center gap-0.5 px-10 min-w-max pb-8 overflow-visible">
+              {game.players[0]?.hand.map((card, i) => {
                 const isSelected = selectedSource === 'HAND' && selectedCardIds.includes(card.id);
-                const overlap = players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
-                
+                const overlap = game.players[0].hand.length > 8 ? '-2rem' : '-1.5rem';
                 return (
-                  <PlayingCard 
-                    key={card.id}
-                    {...card} 
-                    selected={isSelected} 
-                    highlight={turnIndex === 0 && isLegalMove(card) && phase === 'PLAYING'} 
-                    onClick={() => handleCardSelection(card, 'HAND')}
-                    style={{
-                      marginLeft: i === 0 ? '0' : overlap,
-                      zIndex: isSelected ? 1000 + i : i,
-                      transform: isSelected ? 'translateY(-3rem) scale(1.15)' : 'translateY(0)',
-                      boxShadow: isSelected ? '0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(245,158,11,0.2)' : 'none'
-                    }}
-                  />
+                  <PlayingCard key={card.id} {...card} selected={isSelected} highlight={game.turnIndex === 0 && isLegalMove(card, game.pile, game.activeConstraint) && game.phase === 'PLAYING'} 
+                    onClick={() => handleCardSelection(card, 'HAND')} 
+                    style={{ marginLeft: i === 0 ? '0' : overlap, zIndex: isSelected ? 2000 + i : i, transform: isSelected ? 'translateY(-3.5rem) scale(1.15)' : 'translateY(0)', boxShadow: isSelected ? '0 30px 60px rgba(0,0,0,0.8), 0 0 20px rgba(245,158,11,0.3)' : 'none' }} />
                 );
               })}
            </div>
         </div>
       </footer>
 
-      {winner && (
+      {game.winner && (
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6">
            <div className="bg-slate-900 border border-amber-500/30 p-12 rounded-[2.5rem] text-center shadow-2xl max-w-sm w-full animate-in zoom-in-95">
               <Trophy size={56} className="text-amber-500 mx-auto mb-8" />
               <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase tracking-tight">Crown Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-10">{winner} has ascended</p>
+              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-10">{game.winner} has ascended</p>
               <button onClick={onExit} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-4 rounded-2xl transition-all uppercase tracking-widest text-xs">Return to Lobby</button>
            </div>
         </div>
