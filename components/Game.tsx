@@ -20,8 +20,6 @@ import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
 import { audioService } from '../services/audioService';
 import { MOCK_PLAYER_NAMES } from '../constants';
-import { useMinimumBalance } from '../hooks/useMinimumBalance';
-import { useWallet } from '../hooks/useWallet';
 
 const getCardValue = (rank: Rank): number => {
   const values: Record<string, number> = {
@@ -66,20 +64,12 @@ export const Game: React.FC<{
   userProfile: UserProfile, 
   onExit: () => void 
 }> = ({ mode, playerCount, userProfile, onExit }) => {
-  const { isConnected } = useWallet();
-  const { isEligible } = useMinimumBalance();
-
-  // Failsafe: If eligibility is lost during the game (e.g., wallet disconnected or balance drops), exit immediately.
-  useEffect(() => {
-    if (!isConnected || !isEligible) {
-      onExit();
-    }
-  }, [isConnected, isEligible, onExit]);
-
   const [game, setGame] = useState<GameState>(() => {
     const newDeck = createDeck();
     const initialPlayers: Player[] = [];
-    for (let i = 0; i < playerCount; i++) {
+    const actualPlayerCount = Math.max(2, playerCount || 2);
+    
+    for (let i = 0; i < actualPlayerCount; i++) {
       const isHuman = i === 0;
       initialPlayers.push({
         id: i,
@@ -118,6 +108,7 @@ export const Game: React.FC<{
   }, [game.logs]);
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
+    if (!card) return false;
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
     if (card.rank === Rank.Seven) return true;
@@ -130,6 +121,8 @@ export const Game: React.FC<{
   const playCards = (cardIds: string[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
     setGame(prev => {
       const pIdx = prev.turnIndex;
+      if (!prev.players[pIdx]) return prev;
+      
       const player = prev.players[pIdx];
       let cardsToPlay: Card[] = [];
 
@@ -141,7 +134,7 @@ export const Game: React.FC<{
 
       if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
         if (source === 'HIDDEN') {
-          try { audioService.playError(); } catch(e) {}
+          audioService.playError();
           const nextPlayers = [...prev.players];
           const p = { ...nextPlayers[pIdx] };
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
@@ -154,46 +147,46 @@ export const Game: React.FC<{
             pile: [],
             pileRotations: [],
             activeConstraint: 'NONE',
-            turnIndex: (prev.turnIndex + 1) % playerCount,
+            turnIndex: (prev.turnIndex + 1) % prev.players.length,
             actionCount: prev.actionCount + 1,
-            logs: [...prev.logs, `${player.name} failed Blind Siege: ${cardsToPlay[0].rank}${cardsToPlay[0].suit}! 🚫`]
+            logs: [...prev.logs.slice(-15), `${player.name} failed Blind Siege: ${cardsToPlay[0].rank}${cardsToPlay[0].suit}! 🚫`]
           };
         }
-        try { audioService.playError(); } catch(e) {}
+        audioService.playError();
         return prev;
       }
 
       const rank = cardsToPlay[0].rank;
       const newRots = cardsToPlay.map(() => Math.random() * 40 - 20);
       
-      let nextIdx = (prev.turnIndex + 1) % playerCount;
+      let nextIdx = (prev.turnIndex + 1) % prev.players.length;
       let nextConstraint: 'NONE' | 'LOWER_THAN_7' = prev.activeConstraint;
       let nextPile = [...prev.pile, ...cardsToPlay];
       let nextPileRots = [...prev.pileRotations, ...newRots];
       let newLog = `${player.name} played ${cardsToPlay.length}x ${rank}.`;
 
       if (rank === Rank.Ten) {
-        try { audioService.playBurn(); } catch(e) {}
+        audioService.playBurn();
         newLog = `${player.name} BURNED the pile! 🔥`;
         nextPile = [];
         nextPileRots = [];
         nextConstraint = 'NONE';
         nextIdx = pIdx; 
       } else if (rank === Rank.Two) {
-        try { audioService.playReset(); } catch(e) {}
+        audioService.playReset();
         newLog = `${player.name} reset with a 2. 🔄`;
         nextIdx = pIdx;
       } else if (rank === Rank.Ace) {
-        try { audioService.playCardPlace(); } catch(e) {}
+        audioService.playCardPlace();
         newLog = `${player.name} played an Ace. Play again! 👑`;
         nextConstraint = 'NONE';
         nextIdx = pIdx; 
       } else if (rank === Rank.Seven) {
-        try { audioService.playCardPlace(); } catch(e) {}
+        audioService.playCardPlace();
         newLog = `Next ruler must play ≤ 7! 📉`;
         nextConstraint = 'LOWER_THAN_7';
       } else {
-        try { audioService.playCardPlace(); } catch(e) {}
+        audioService.playCardPlace();
         nextConstraint = 'NONE'; 
       }
 
@@ -224,7 +217,7 @@ export const Game: React.FC<{
       if (p.hiddenCards.length === 0 && p.faceUpCards.length === 0 && p.hand.length === 0) {
         finalWinner = p.name;
         finalPhase = 'GAME_OVER';
-        try { audioService.playVictory(); } catch(e) {}
+        audioService.playVictory();
       }
 
       return {
@@ -248,6 +241,8 @@ export const Game: React.FC<{
   const pickUpPile = () => {
     setGame(prev => {
       const nextPlayers = [...prev.players];
+      if (!nextPlayers[prev.turnIndex]) return prev;
+      
       const p = { ...nextPlayers[prev.turnIndex] };
       p.hand = [...p.hand, ...prev.pile];
       nextPlayers[prev.turnIndex] = p;
@@ -258,14 +253,14 @@ export const Game: React.FC<{
         pile: [],
         pileRotations: [],
         activeConstraint: 'NONE',
-        turnIndex: (prev.turnIndex + 1) % playerCount,
+        turnIndex: (prev.turnIndex + 1) % prev.players.length,
         actionCount: prev.actionCount + 1,
         logs: [...prev.logs.slice(-15), `${p.name} inherited the pile.`]
       };
     });
     setSelectedCardIds([]);
     setSelectedSource(null);
-    try { audioService.playError(); } catch(e) {}
+    audioService.playError();
   };
 
   const confirmSetup = () => {
@@ -278,7 +273,7 @@ export const Game: React.FC<{
       user.hasSelectedSetup = true;
       nextPlayers[0] = user;
 
-      for (let i = 1; i < playerCount; i++) {
+      for (let i = 1; i < nextPlayers.length; i++) {
         const bot = { ...nextPlayers[i] };
         const sorted = [...bot.hand].sort((a, b) => b.value - a.value);
         bot.faceUpCards = sorted.slice(0, 3);
@@ -286,12 +281,12 @@ export const Game: React.FC<{
         bot.hasSelectedSetup = true;
         nextPlayers[i] = bot;
       }
-      try { audioService.playReset(); } catch(e) {}
+      audioService.playReset();
       return {
         ...prev,
         players: nextPlayers,
         phase: 'PLAYING',
-        logs: [...prev.logs, "Battle Commenced!"],
+        logs: [...prev.logs.slice(-15), "Battle Commenced!"],
         actionCount: prev.actionCount + 1
       };
     });
@@ -299,9 +294,8 @@ export const Game: React.FC<{
     setSelectedSource(null);
   };
 
-  // BOT AI ENHANCEMENT: Making the bot more unpredictable and tactical
   useEffect(() => {
-    const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex].isHuman && !game.winner;
+    const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex]?.isHuman && !game.winner;
     if (!isBotTurn || botIsThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
 
     botIsThinkingRef.current = true;
@@ -310,6 +304,11 @@ export const Game: React.FC<{
 
     const timer = setTimeout(() => {
       const bot = game.players[game.turnIndex];
+      if (!bot) {
+        botIsThinkingRef.current = false;
+        return;
+      }
+      
       let source: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
       let pool = bot.hand;
       
@@ -326,22 +325,15 @@ export const Game: React.FC<{
       const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
       
       if (legal.length > 0) {
-        // AI Strategy Refinement:
-        // 1. If it's the Hidden/FaceUp phase, always play the first legal.
-        // 2. If it's Hand phase, add a bit of variety.
-        // 3. Occasionally save power cards if we have standard ones.
-        
         const nonPower = legal.filter(c => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         const powerCards = legal.filter(c => [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         
         let chosen;
-        // 20% chance to play a slightly higher card than the absolute lowest if available
         if (source === 'HAND' && nonPower.length > 1 && Math.random() > 0.8) {
            chosen = nonPower.sort((a, b) => a.value - b.value)[1];
         } else if (nonPower.length > 0) {
            chosen = nonPower.sort((a, b) => a.value - b.value)[0];
         } else {
-           // No standard moves, use a power card (randomize which power card to use if multiple)
            chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
         }
         
@@ -377,7 +369,8 @@ export const Game: React.FC<{
           return next;
         }
         if (prev.length > 0) {
-          const pool = source === 'HAND' ? game.players[0].hand : game.players[0].faceUpCards;
+          const pool = source === 'HAND' ? game.players[0]?.hand : game.players[0]?.faceUpCards;
+          if (!pool) return [card.id];
           const firstSelected = pool.find(c => c.id === prev[0]);
           if (firstSelected && firstSelected.rank === card.rank) return [...prev, card.id];
           return [card.id]; 

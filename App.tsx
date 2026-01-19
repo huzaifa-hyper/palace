@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Layers, 
   HelpCircle, 
@@ -64,6 +64,22 @@ export default function App() {
     }
   }, []);
 
+  const exitGame = useCallback(() => {
+    setGameConfig(null);
+    setActiveTab('lobby');
+  }, []);
+
+  const startLocalGame = useCallback((mode: GameMode, playerCount: number) => {
+    // STRICT GUARD: Must be connected and eligible (1.0 STT+)
+    if (!isConnected || !isEligible) {
+      setActiveTab('lobby');
+      return;
+    }
+    p2pService.destroy(); 
+    setGameConfig({ mode, playerCount });
+    setOfflineSetupMode(null);
+  }, [isConnected, isEligible]);
+
   if (!hasMounted) return null;
 
   const handleCreateProfile = (e: React.FormEvent) => {
@@ -79,22 +95,6 @@ export default function App() {
     setIsProfileModalOpen(false);
   };
 
-  const startLocalGame = (mode: GameMode, playerCount: number) => {
-    // STRICT GUARD: Must be connected and eligible (1.0 STT+)
-    if (!isConnected || !isEligible) {
-      setActiveTab('lobby');
-      return;
-    }
-    p2pService.destroy(); 
-    setGameConfig({ mode, playerCount });
-    setOfflineSetupMode(null);
-  };
-
-  const exitGame = () => {
-    setGameConfig(null);
-    setActiveTab('lobby');
-  };
-
   if (protocolError) {
     return (
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center p-6 z-[200] bg-felt">
@@ -107,7 +107,7 @@ export default function App() {
     );
   }
 
-  // If game is active, but eligibility is lost, the App component prevents rendering the Game
+  // Strict game render guard
   if (gameConfig && userProfile && isConnected && isEligible) {
     return (
       <Game 
@@ -185,7 +185,6 @@ export default function App() {
                </div>
              )}
 
-             {/* Strict Access Condition: Connect Wallet & Balance >= 1.0 STT */}
              {isConnected && isEligible ? (
                <div className="grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-500">
                   <div className="space-y-6">
@@ -285,7 +284,6 @@ export default function App() {
         {activeTab === 'arbiter' && (<div className="max-w-3xl mx-auto pt-10"><Arbiter /></div>)}
       </main>
 
-      {/* Navigation hidden if not in lobby/rules/arbiter or if eligibility lost */}
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-2xl border-t border-white/5 px-8 py-5 z-50 md:hidden shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
         <div className="flex justify-around items-center max-w-md mx-auto">
           {[
