@@ -69,7 +69,7 @@ export const Game: React.FC<{
   const { isConnected } = useWallet();
   const { isEligible } = useMinimumBalance();
 
-  // Failsafe: If eligibility is lost during the game, exit to lobby
+  // Failsafe: If eligibility is lost during the game (e.g., wallet disconnected or balance drops), exit immediately.
   useEffect(() => {
     if (!isConnected || !isEligible) {
       onExit();
@@ -299,13 +299,14 @@ export const Game: React.FC<{
     setSelectedSource(null);
   };
 
+  // BOT AI ENHANCEMENT: Making the bot more unpredictable and tactical
   useEffect(() => {
     const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex].isHuman && !game.winner;
     if (!isBotTurn || botIsThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
 
     botIsThinkingRef.current = true;
     lastProcessedActionRef.current = game.actionCount;
-    const thinkingTime = 1000 + Math.random() * 600;
+    const thinkingTime = 1200 + Math.random() * 800;
 
     const timer = setTimeout(() => {
       const bot = game.players[game.turnIndex];
@@ -325,8 +326,25 @@ export const Game: React.FC<{
       const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
       
       if (legal.length > 0) {
+        // AI Strategy Refinement:
+        // 1. If it's the Hidden/FaceUp phase, always play the first legal.
+        // 2. If it's Hand phase, add a bit of variety.
+        // 3. Occasionally save power cards if we have standard ones.
+        
         const nonPower = legal.filter(c => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
-        const chosen = (nonPower.length > 0 ? nonPower : legal).sort((a, b) => a.value - b.value)[0];
+        const powerCards = legal.filter(c => [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
+        
+        let chosen;
+        // 20% chance to play a slightly higher card than the absolute lowest if available
+        if (source === 'HAND' && nonPower.length > 1 && Math.random() > 0.8) {
+           chosen = nonPower.sort((a, b) => a.value - b.value)[1];
+        } else if (nonPower.length > 0) {
+           chosen = nonPower.sort((a, b) => a.value - b.value)[0];
+        } else {
+           // No standard moves, use a power card (randomize which power card to use if multiple)
+           chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
+        }
+        
         const set = pool.filter(c => c.rank === chosen.rank);
         playCards(set.map(c => c.id), source);
       } else {

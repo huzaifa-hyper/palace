@@ -80,7 +80,7 @@ export default function App() {
   };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
-    // Strict Guard: Must be connected and eligible
+    // STRICT GUARD: Must be connected and eligible (1.0 STT+)
     if (!isConnected || !isEligible) {
       setActiveTab('lobby');
       return;
@@ -107,7 +107,7 @@ export default function App() {
     );
   }
 
-  // If game is active, but eligibility is lost, the Game component should handle or this wrapper
+  // If game is active, but eligibility is lost, the App component prevents rendering the Game
   if (gameConfig && userProfile && isConnected && isEligible) {
     return (
       <Game 
@@ -139,7 +139,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-felt text-slate-200 selection:bg-amber-500/30 font-sans pb-safe-area-bottom">
       <main className="max-w-7xl mx-auto p-4 md:p-6 min-h-[calc(100vh-80px)]">
-        {/* Global Access Guard: If not eligible, only show the Lock Screen in Lobby */}
         {activeTab === 'lobby' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 md:pb-0">
              <div className="bg-slate-900/60 backdrop-blur-xl p-4 md:p-6 rounded-[2rem] border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
@@ -186,6 +185,7 @@ export default function App() {
                </div>
              )}
 
+             {/* Strict Access Condition: Connect Wallet & Balance >= 1.0 STT */}
              {isConnected && isEligible ? (
                <div className="grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-500">
                   <div className="space-y-6">
@@ -227,7 +227,7 @@ export default function App() {
                               <div className="relative z-10">
                                  <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
                                  <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">Local Skirmish</h3>
-                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Settle royal disputes face-to-face on a single device. Honor is optional.</p>
+                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Settle royal disputes face-to-face on a single device.</p>
                               </div>
                            </button>
                          )}
@@ -242,7 +242,7 @@ export default function App() {
                            <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 animate-pulse"><Globe size={40} className="text-blue-400" /></div>
                            <div className="space-y-2">
                               <span className="bg-blue-600 text-white px-6 py-2 rounded-full text-[10px] font-black tracking-[0.3em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
-                              <p className="text-xs text-slate-400 font-light max-w-xs mx-auto">Ranked matches with STT stakes and global leaderboards are being forged by the architects.</p>
+                              <p className="text-xs text-slate-400 font-light max-w-xs mx-auto">Ranked matches with STT stakes are being forged.</p>
                            </div>
                         </div>
                      </div>
@@ -285,6 +285,7 @@ export default function App() {
         {activeTab === 'arbiter' && (<div className="max-w-3xl mx-auto pt-10"><Arbiter /></div>)}
       </main>
 
+      {/* Navigation hidden if not in lobby/rules/arbiter or if eligibility lost */}
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-2xl border-t border-white/5 px-8 py-5 z-50 md:hidden shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
         <div className="flex justify-around items-center max-w-md mx-auto">
           {[
