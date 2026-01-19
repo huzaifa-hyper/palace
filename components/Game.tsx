@@ -109,28 +109,16 @@ export const Game: React.FC<{
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
-    // Rank 2 and 10 are always legal
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
-    
-    // Constraint logic
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
-    
-    // Rank 7 itself is always legal to start a constraint
     if (card.rank === Rank.Seven) return true;
-    
-    // Empty pile
     if (currentPile.length === 0) return true;
-    
     const topCard = currentPile[currentPile.length - 1];
-    
-    // Rank 2 makes the pile transparent/reset
     if (topCard.rank === Rank.Two) return true;
-    
     return card.value >= topCard.value;
   };
 
   const playCards = (cardIds: string[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
-    // ENFORCED RULE: You can only play 1 card per turn.
     if (cardIds.length > 1 && source !== 'HIDDEN') {
       audioService.playError();
       return;
@@ -184,23 +172,21 @@ export const Game: React.FC<{
 
       if (rank === Rank.Ten) {
         audioService.playBurn();
-        newLog = `${player.name} BURNED the pile! 🔥`;
+        newLog = `${player.name} BURNED the pile! 🔥 Turn passes.`;
         nextPile = [];
         nextPileRots = [];
         nextConstraint = 'NONE';
-        nextIdx = pIdx; 
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        // RULE: After 2, no matter what the condition is, you only can throw card after 2.
-        // Interpretation: Rank 2 resets constraints and allows the player to go again immediately.
         newLog = `${player.name} reset with a 2. Go again! 🔄`;
         nextConstraint = 'NONE'; 
         nextIdx = pIdx; 
       } else if (rank === Rank.Ace) {
         audioService.playCardPlace();
-        newLog = `${player.name} played an Ace. Play again! 👑`;
+        // RULE UPDATE: You can not throw any card after A. Turn passes.
+        newLog = `${player.name} played an Ace. Turn passes. 👑`;
         nextConstraint = 'NONE';
-        nextIdx = pIdx; 
+        // nextIdx already defaults to (pIdx + 1) % length
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
         newLog = `Next ruler must play ≤ 7! 📉`;
@@ -348,14 +334,12 @@ export const Game: React.FC<{
         const powerCards = legal.filter(c => [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         
         let chosen;
-        // Bot strategy: use power cards only if needed or with a low chance
         if (nonPower.length > 0) {
           chosen = nonPower.sort((a, b) => a.value - b.value)[0];
         } else {
           chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
         }
         
-        // ENFORCED RULE: Always play exactly 1 card.
         playCards([chosen.id], source);
       } else {
         pickUpPile();
@@ -376,7 +360,6 @@ export const Game: React.FC<{
       );
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING' && game.turnIndex === 0) {
-      // ENFORCED RULE: Single card selection during gameplay
       setSelectedCardIds(prev => {
         if (prev.includes(card.id)) {
           setSelectedSource(null);

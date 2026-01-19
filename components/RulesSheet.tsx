@@ -53,7 +53,7 @@ export const RulesSheet: React.FC = () => {
               <ul className="space-y-4">
                 {[
                   { title: "The Hidden Core", desc: "3 cards placed face-down. These are your 'Blind Siege' cards." },
-                  { title: "The Stronghold", desc: "Select 3 high-value cards from your hand and place them face-up on the Hidden Core." },
+                  { title: "The Stronghold", desc: "Select 3 high-value cards from your hand and place them face-up on top of your hidden cards." },
                   { title: "The Active Hand", desc: "The remaining 7 cards are used to start the battle." }
                 ].map((item, i) => (
                   <li key={i} className="flex gap-4 group">
@@ -99,7 +99,7 @@ export const RulesSheet: React.FC = () => {
             <div className="space-y-8">
                <h3 className="text-4xl font-playfair font-black text-white">Phase II: The Skirmish</h3>
                <p className="text-slate-400 text-lg leading-relaxed font-light">
-                  Rulers alternate playing cards to the central pile. You must match or exceed the rank of the current top card.
+                  Rulers alternate playing cards. You must match or exceed the rank of the top card. Only one card per turn is allowed (except for special resets).
                </p>
                <div className="bg-slate-950/60 p-6 rounded-3xl border border-white/5 space-y-6">
                   <div className="flex items-center justify-between">
@@ -150,19 +150,20 @@ export const RulesSheet: React.FC = () => {
           <h3 className="text-3xl font-playfair font-black text-amber-100 uppercase tracking-widest">The High Arcana</h3>
           <p className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.4em]">Overriding the Natural Order</p>
         </div>
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-4 gap-6">
           {[
-            { rank: "2", title: "The Reset", icon: RotateCcw, color: "blue", desc: "Resets the pile's hierarchy. Playable on anything. You play again immediately." },
+            { rank: "2", title: "The Reset", icon: RotateCcw, color: "blue", desc: "Resets all pile constraints. You play again immediately. Allows 7 then 2 then Ace." },
             { rank: "7", title: "The Lowering", icon: ArrowDown, color: "emerald", desc: "Forces the next Ruler to play a card equal to or LOWER than 7." },
-            { rank: "10", title: "The Burn", icon: Flame, color: "orange", desc: "Vaporizes the pile! It is removed from the game. You start a fresh turn." }
+            { rank: "10", title: "The Burn", icon: Flame, color: "orange", desc: "Vaporizes the pile! Pile is removed. Your turn ends immediately." },
+            { rank: "A", title: "The Swift", icon: Zap, color: "amber", desc: "The highest value standard card. Turn ends immediately after playing." }
           ].map((card, i) => (
-            <div key={i} className={`bg-slate-900/40 border border-${card.color}-500/10 p-10 rounded-[3rem] text-center hover:scale-105 hover:border-${card.color}-500/30 transition-all group relative overflow-hidden`}>
-              <div className={`absolute -bottom-4 -right-4 text-9xl font-black text-${card.color}-500/5 group-hover:scale-110 transition-transform`}>{card.rank}</div>
-              <div className={`w-16 h-16 rounded-2xl bg-${card.color}-500/20 border border-${card.color}-500/20 flex items-center justify-center text-${card.color}-400 mx-auto mb-6 shadow-lg`}>
-                <card.icon size={32} />
+            <div key={i} className={`bg-slate-900/40 border border-${card.color}-500/10 p-8 rounded-[3rem] text-center hover:scale-105 hover:border-${card.color}-500/30 transition-all group relative overflow-hidden flex flex-col items-center justify-start`}>
+              <div className={`absolute -bottom-4 -right-4 text-8xl font-black text-${card.color}-500/5 group-hover:scale-110 transition-transform`}>{card.rank}</div>
+              <div className={`w-14 h-14 rounded-2xl bg-${card.color}-500/20 border border-${card.color}-500/20 flex items-center justify-center text-${card.color}-400 mb-6 shadow-lg shrink-0`}>
+                <card.icon size={28} />
               </div>
-              <h4 className="text-2xl font-playfair font-black text-white mb-2">{card.title}</h4>
-              <p className="text-xs text-slate-500 leading-relaxed font-light px-4">{card.desc}</p>
+              <h4 className="text-xl font-playfair font-black text-white mb-2">{card.title}</h4>
+              <p className="text-[10px] text-slate-500 leading-relaxed font-light px-2">{card.desc}</p>
             </div>
           ))}
         </div>

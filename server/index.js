@@ -249,11 +249,10 @@ app.post('/api/action', (req, res) => {
         const isTen = cardProto.rank === Rank.Ten;
         const isSeven = cardProto.rank === Rank.Seven;
 
-        // Corrected Power-Card and Constraint Priority
         if (isTwo || isTen) {
             isValid = true;
         } else if (room.activeConstraint === 'LOWER_THAN_7') {
-            isValid = (cardProto.value <= 7); // Fixed: Should be <= 7
+            isValid = (cardProto.value <= 7);
         } else if (isSeven) {
             isValid = true;
         } else if (!topCard || topCard.rank === Rank.Two) {
@@ -285,31 +284,36 @@ app.post('/api/action', (req, res) => {
         cards.forEach(() => room.pileRotations.push(Math.random() * 30 - 15));
 
         if (isTen) {
-            room.logs.push(`${player.name} BURNED the pile! 🔥`);
+            room.logs.push(`${player.name} BURNED the pile! 🔥 Turn passes.`);
             room.pile = [];
             room.pileRotations = [];
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);
             checkHandState(player, room);
             if (!checkWinCondition(player, room)) {
-                // Rule: Burner goes again
+                advanceTurn(room);
             }
-        } else if (isTwo || cardProto.rank === Rank.Ace) {
-            room.logs.push(`${player.name} plays ${cardProto.rank} and goes again!`);
+        } else if (isTwo) {
+            room.logs.push(`${player.name} resets with 2 and goes again!`);
             room.pile.push(...cards);
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);
             checkHandState(player, room);
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
             room.mustPlayAgain = true;
+        } else if (cardProto.rank === Rank.Ace) {
+            room.logs.push(`${player.name} plays Ace. Turn passes. 👑`);
+            room.pile.push(...cards);
+            room.activeConstraint = 'NONE';
+            drawCards(player, room.deck);
+            checkHandState(player, room);
+            if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
+            advanceTurn(room);
         } else {
             room.logs.push(`${player.name} plays ${cards.length}x ${cardProto.rank}.`);
             room.pile.push(...cards);
-            
-            // Standard reset or 7 trigger
             room.activeConstraint = isSeven ? 'LOWER_THAN_7' : 'NONE';
             if (isSeven) room.logs.push("📉 Next Ruler must play ≤ 7!");
-            
             drawCards(player, room.deck);
             checkHandState(player, room);
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }

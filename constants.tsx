@@ -6,14 +6,15 @@ export const GAME_RULES_TEXT = `
 
 **Phase 2: The Skirmish (Gameplay)**
 - Rulers take turns playing cards that are **equal to or higher** than the top card of the pile.
-- You can play multiple cards of the same rank at once (a "set").
+- **Single Play:** You can play only one card per turn (unless playing a 2).
 - **Auto-Refill:** If the deck has cards, you must always draw back up to a minimum of 3 cards in your hand after playing.
 - **Failed Play:** If you cannot play a legal card, you must pick up the entire pile.
 
 **Phase 3: The High Arcana (Power Cards)**
-- **Rank 2 (The Reset):** Playable on anything. Resets the pile value. The current ruler plays again immediately.
+- **Rank 2 (The Reset):** Playable on anything. Resets the pile value and constraints (e.g., 7 then 2 then Ace is valid). You play again immediately.
 - **Rank 7 (The Lowering):** The next ruler must play a card equal to or LOWER than 7.
-- **Rank 10 (The Burn):** Playable on anything. Vaporizes the pile (removes it from game). The current ruler starts a fresh turn.
+- **Rank 10 (The Burn):** Playable on anything. Vaporizes the pile (removes it from game). Your turn ends immediately.
+- **Rank Ace (The Swift):** The highest value standard card. Your turn ends immediately after playing.
 
 **Phase 4: Coronation (Endgame)**
 - Once the deck is empty and your hand is empty, you pick up your 3 **Stronghold** (face-up) cards.
