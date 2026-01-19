@@ -109,16 +109,33 @@ export const Game: React.FC<{
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
+    // Rank 2 and 10 are always legal
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
+    
+    // Constraint logic
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
+    
+    // Rank 7 itself is always legal to start a constraint
     if (card.rank === Rank.Seven) return true;
+    
+    // Empty pile
     if (currentPile.length === 0) return true;
+    
     const topCard = currentPile[currentPile.length - 1];
+    
+    // Rank 2 makes the pile transparent/reset
     if (topCard.rank === Rank.Two) return true;
+    
     return card.value >= topCard.value;
   };
 
   const playCards = (cardIds: string[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
+    // ENFORCED RULE: You can only play 1 card per turn.
+    if (cardIds.length > 1 && source !== 'HIDDEN') {
+      audioService.playError();
+      return;
+    }
+
     setGame(prev => {
       const pIdx = prev.turnIndex;
       if (!prev.players[pIdx]) return prev;
@@ -163,7 +180,7 @@ export const Game: React.FC<{
       let nextConstraint: 'NONE' | 'LOWER_THAN_7' = prev.activeConstraint;
       let nextPile = [...prev.pile, ...cardsToPlay];
       let nextPileRots = [...prev.pileRotations, ...newRots];
-      let newLog = `${player.name} played ${cardsToPlay.length}x ${rank}.`;
+      let newLog = `${player.name} played ${rank}.`;
 
       if (rank === Rank.Ten) {
         audioService.playBurn();
@@ -174,8 +191,11 @@ export const Game: React.FC<{
         nextIdx = pIdx; 
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        newLog = `${player.name} reset with a 2. 🔄`;
-        nextIdx = pIdx;
+        // RULE: After 2, no matter what the condition is, you only can throw card after 2.
+        // Interpretation: Rank 2 resets constraints and allows the player to go again immediately.
+        newLog = `${player.name} reset with a 2. Go again! 🔄`;
+        nextConstraint = 'NONE'; 
+        nextIdx = pIdx; 
       } else if (rank === Rank.Ace) {
         audioService.playCardPlace();
         newLog = `${player.name} played an Ace. Play again! 👑`;
@@ -199,9 +219,8 @@ export const Game: React.FC<{
       let nextDeck = [...prev.deck];
       const needed = 3 - p.hand.length;
       if (needed > 0 && nextDeck.length > 0) {
-        const drawn = nextDeck.slice(0, Math.min(needed, nextDeck.length));
+        const drawn = nextDeck.splice(0, Math.min(needed, nextDeck.length));
         p.hand = [...p.hand, ...drawn];
-        nextDeck = nextDeck.slice(drawn.length);
       }
 
       if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
@@ -329,16 +348,15 @@ export const Game: React.FC<{
         const powerCards = legal.filter(c => [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
         
         let chosen;
-        if (source === 'HAND' && nonPower.length > 1 && Math.random() > 0.8) {
-           chosen = nonPower.sort((a, b) => a.value - b.value)[1];
-        } else if (nonPower.length > 0) {
-           chosen = nonPower.sort((a, b) => a.value - b.value)[0];
+        // Bot strategy: use power cards only if needed or with a low chance
+        if (nonPower.length > 0) {
+          chosen = nonPower.sort((a, b) => a.value - b.value)[0];
         } else {
-           chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
+          chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
         }
         
-        const set = pool.filter(c => c.rank === chosen.rank);
-        playCards(set.map(c => c.id), source);
+        // ENFORCED RULE: Always play exactly 1 card.
+        playCards([chosen.id], source);
       } else {
         pickUpPile();
       }
@@ -358,22 +376,11 @@ export const Game: React.FC<{
       );
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING' && game.turnIndex === 0) {
+      // ENFORCED RULE: Single card selection during gameplay
       setSelectedCardIds(prev => {
-        if (selectedSource !== source) {
-          setSelectedSource(source);
-          return [card.id];
-        }
         if (prev.includes(card.id)) {
-          const next = prev.filter(id => id !== card.id);
-          if (next.length === 0) setSelectedSource(null);
-          return next;
-        }
-        if (prev.length > 0) {
-          const pool = source === 'HAND' ? game.players[0]?.hand : game.players[0]?.faceUpCards;
-          if (!pool) return [card.id];
-          const firstSelected = pool.find(c => c.id === prev[0]);
-          if (firstSelected && firstSelected.rank === card.rank) return [...prev, card.id];
-          return [card.id]; 
+          setSelectedSource(null);
+          return [];
         }
         setSelectedSource(source);
         return [card.id];
@@ -388,7 +395,7 @@ export const Game: React.FC<{
   };
 
   const currentSelection = getActiveSelection();
-  const isSelectionLegal = currentSelection.length > 0 && isLegalMove(currentSelection[0], game.pile, game.activeConstraint);
+  const isSelectionLegal = currentSelection.length === 1 && isLegalMove(currentSelection[0], game.pile, game.activeConstraint);
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
@@ -444,7 +451,7 @@ export const Game: React.FC<{
                 }`}
               >
                 {game.phase === 'SETUP' ? <ShieldCheck size={14} /> : <Play size={14} />}
-                {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : isSelectionLegal ? `Play Selection (${selectedCardIds.length})` : 'Illegal Move'}
+                {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : isSelectionLegal ? `Play Card` : 'Illegal Move'}
               </button>
             </div>
           )}
