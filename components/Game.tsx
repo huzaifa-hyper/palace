@@ -14,7 +14,8 @@ import {
   Swords, 
   ShieldCheck, 
   Zap,
-  Play
+  Play,
+  Crown
 } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
@@ -119,11 +120,6 @@ export const Game: React.FC<{
   };
 
   const playCards = (cardIds: string[], source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
-    if (cardIds.length > 1 && source !== 'HIDDEN') {
-      audioService.playError();
-      return;
-    }
-
     setGame(prev => {
       const pIdx = prev.turnIndex;
       if (!prev.players[pIdx]) return prev;
@@ -136,6 +132,13 @@ export const Game: React.FC<{
       else if (source === 'HIDDEN') cardsToPlay = player.hiddenCards.filter(c => cardIds.includes(c.id));
 
       if (cardsToPlay.length === 0) return prev;
+
+      // Ensure set integrity
+      const firstRank = cardsToPlay[0].rank;
+      if (!cardsToPlay.every(c => c.rank === firstRank)) {
+         audioService.playError();
+         return prev;
+      }
 
       if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
         if (source === 'HIDDEN') {
@@ -168,32 +171,37 @@ export const Game: React.FC<{
       let nextConstraint: 'NONE' | 'LOWER_THAN_7' = prev.activeConstraint;
       let nextPile = [...prev.pile, ...cardsToPlay];
       let nextPileRots = [...prev.pileRotations, ...newRots];
-      let newLog = `${player.name} played ${rank}.`;
+      let newLog = `${player.name} played ${cardsToPlay.length > 1 ? cardsToPlay.length + 'x ' : ''}${rank}.`;
 
       if (rank === Rank.Ten) {
         audioService.playBurn();
+        // MANDATORY: 10 ends turn.
         newLog = `${player.name} BURNED the pile! 🔥 Turn passes.`;
         nextPile = [];
         nextPileRots = [];
         nextConstraint = 'NONE';
+        nextIdx = (prev.turnIndex + 1) % prev.players.length; 
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        newLog = `${player.name} reset with a 2. Go again! 🔄`;
+        // Rank 2 is the ONLY card that allows going again.
+        newLog = `${player.name} reset with 2. Go again! 🔄`;
         nextConstraint = 'NONE'; 
         nextIdx = pIdx; 
       } else if (rank === Rank.Ace) {
         audioService.playCardPlace();
-        // RULE UPDATE: You can not throw any card after A. Turn passes.
-        newLog = `${player.name} played an Ace. Turn passes. 👑`;
+        // MANDATORY: Ace ends turn immediately.
+        newLog = `${player.name} played The Sovereign (A). Turn passes. 👑`;
         nextConstraint = 'NONE';
-        // nextIdx already defaults to (pIdx + 1) % length
+        nextIdx = (prev.turnIndex + 1) % prev.players.length; 
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
         newLog = `Next ruler must play ≤ 7! 📉`;
         nextConstraint = 'LOWER_THAN_7';
+        nextIdx = (prev.turnIndex + 1) % prev.players.length;
       } else {
         audioService.playCardPlace();
         nextConstraint = 'NONE'; 
+        nextIdx = (prev.turnIndex + 1) % prev.players.length;
       }
 
       const nextPlayers = [...prev.players];
@@ -330,17 +338,22 @@ export const Game: React.FC<{
       const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
       
       if (legal.length > 0) {
-        const nonPower = legal.filter(c => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
-        const powerCards = legal.filter(c => [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(c.rank));
+        const rankCounts: Record<string, string[]> = {};
+        legal.forEach(c => {
+          if (!rankCounts[c.rank]) rankCounts[c.rank] = [];
+          rankCounts[c.rank].push(c.id);
+        });
+
+        const sortedRanks = Object.keys(rankCounts).sort((a, b) => {
+           const countDiff = rankCounts[b].length - rankCounts[a].length;
+           if (countDiff !== 0) return countDiff;
+           return getCardValue(a as Rank) - getCardValue(b as Rank);
+        });
+
+        const chosenRank = sortedRanks[0];
+        const chosenIds = rankCounts[chosenRank];
         
-        let chosen;
-        if (nonPower.length > 0) {
-          chosen = nonPower.sort((a, b) => a.value - b.value)[0];
-        } else {
-          chosen = powerCards[Math.floor(Math.random() * powerCards.length)];
-        }
-        
-        playCards([chosen.id], source);
+        playCards(chosenIds, source);
       } else {
         pickUpPile();
       }
@@ -362,11 +375,24 @@ export const Game: React.FC<{
     } else if (game.phase === 'PLAYING' && game.turnIndex === 0) {
       setSelectedCardIds(prev => {
         if (prev.includes(card.id)) {
-          setSelectedSource(null);
-          return [];
+          const next = prev.filter(id => id !== card.id);
+          if (next.length === 0) setSelectedSource(null);
+          return next;
+        }
+        if (selectedSource && selectedSource !== source) {
+           setSelectedSource(source);
+           return [card.id];
+        }
+        const firstId = prev[0];
+        const pool = source === 'HAND' ? game.players[0]?.hand : game.players[0]?.faceUpCards;
+        const firstCard = pool?.find(c => c.id === firstId);
+
+        if (firstCard && firstCard.rank !== card.rank) {
+          setSelectedSource(source);
+          return [card.id];
         }
         setSelectedSource(source);
-        return [card.id];
+        return [...prev, card.id];
       });
     }
   };
@@ -378,7 +404,7 @@ export const Game: React.FC<{
   };
 
   const currentSelection = getActiveSelection();
-  const isSelectionLegal = currentSelection.length === 1 && isLegalMove(currentSelection[0], game.pile, game.activeConstraint);
+  const isSelectionLegal = currentSelection.length > 0 && isLegalMove(currentSelection[0], game.pile, game.activeConstraint);
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
@@ -408,8 +434,8 @@ export const Game: React.FC<{
              {game.pile.length === 0 ? (
                 <div className="w-16 md:w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-xl flex items-center justify-center text-white/5"><Swords size={28} /></div>
              ) : (
-                game.pile.slice(-5).map((card, i) => (
-                  <div key={card.id} className="absolute" style={{ transform: `rotate(${game.pileRotations[game.pile.length - 1 - (game.pile.slice(-5).length - 1 - i)]}deg)` }}>
+                game.pile.slice(-10).map((card, i) => (
+                  <div key={card.id} className="absolute" style={{ transform: `rotate(${game.pileRotations[game.pile.length - 1 - (game.pile.slice(-10).length - 1 - i)]}deg)` }}>
                     <PlayingCard {...card} dimmed={game.turnIndex !== 0} />
                   </div>
                 ))
@@ -434,7 +460,11 @@ export const Game: React.FC<{
                 }`}
               >
                 {game.phase === 'SETUP' ? <ShieldCheck size={14} /> : <Play size={14} />}
-                {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : isSelectionLegal ? `Play Card` : 'Illegal Move'}
+                {game.phase === 'SETUP' 
+                   ? `Confirm Stronghold (${selectedCardIds.length}/3)` 
+                   : isSelectionLegal 
+                      ? `Play ${selectedCardIds.length > 1 ? selectedCardIds.length + ' Cards' : 'Card'}` 
+                      : 'Illegal Move'}
               </button>
             </div>
           )}

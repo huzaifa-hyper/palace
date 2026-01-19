@@ -302,7 +302,8 @@ app.post('/api/action', (req, res) => {
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
             room.mustPlayAgain = true;
         } else if (cardProto.rank === Rank.Ace) {
-            room.logs.push(`${player.name} plays Ace. Turn passes. 👑`);
+            // STRICT: Turn advances after Ace
+            room.logs.push(`${player.name} plays The Sovereign (A). Turn passes. 👑`);
             room.pile.push(...cards);
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);

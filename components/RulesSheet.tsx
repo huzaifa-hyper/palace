@@ -99,7 +99,7 @@ export const RulesSheet: React.FC = () => {
             <div className="space-y-8">
                <h3 className="text-4xl font-playfair font-black text-white">Phase II: The Skirmish</h3>
                <p className="text-slate-400 text-lg leading-relaxed font-light">
-                  Rulers alternate playing cards. You must match or exceed the rank of the top card. Only one card per turn is allowed (except for special resets).
+                  Rulers alternate playing cards. You must match or exceed the rank of the top card. You can play <strong>multiple cards of the same rank</strong> in one turn.
                </p>
                <div className="bg-slate-950/60 p-6 rounded-3xl border border-white/5 space-y-6">
                   <div className="flex items-center justify-between">
@@ -110,10 +110,13 @@ export const RulesSheet: React.FC = () => {
                     <ArrowRight className="text-emerald-500" />
                     <div className="text-center">
                       <span className="block text-[10px] text-emerald-500/60 uppercase mb-2">Legal Move</span>
-                      <div className="w-16 h-20 bg-white rounded-lg border-2 border-emerald-500/40 flex items-center justify-center text-3xl font-black text-emerald-500 shadow-lg">J</div>
+                      <div className="flex -space-x-8">
+                        <div className="w-14 h-18 bg-white rounded-lg border-2 border-emerald-500/40 flex items-center justify-center text-2xl font-black text-emerald-500 shadow-lg">J</div>
+                        <div className="w-14 h-18 bg-white rounded-lg border-2 border-emerald-500/40 flex items-center justify-center text-2xl font-black text-emerald-500 shadow-lg rotate-6">J</div>
+                      </div>
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-500 text-center uppercase tracking-widest font-black">Match or Exceed</p>
+                  <p className="text-[11px] text-slate-500 text-center uppercase tracking-widest font-black">Play Single or Set</p>
                </div>
             </div>
             <div className="space-y-8">
@@ -154,8 +157,8 @@ export const RulesSheet: React.FC = () => {
           {[
             { rank: "2", title: "The Reset", icon: RotateCcw, color: "blue", desc: "Resets all pile constraints. You play again immediately. Allows 7 then 2 then Ace." },
             { rank: "7", title: "The Lowering", icon: ArrowDown, color: "emerald", desc: "Forces the next Ruler to play a card equal to or LOWER than 7." },
-            { rank: "10", title: "The Burn", icon: Flame, color: "orange", desc: "Vaporizes the pile! Pile is removed. Your turn ends immediately." },
-            { rank: "A", title: "The Swift", icon: Zap, color: "amber", desc: "The highest value standard card. Turn ends immediately after playing." }
+            { rank: "10", title: "The Burn", icon: Flame, color: "orange", desc: "Vaporizes the pile! Turn ends immediately. NO cards allowed after a 10." },
+            { rank: "A", title: "The Sovereign", icon: Crown, color: "amber", desc: "Highest standard value. Turn ends immediately. NO cards allowed after an Ace." }
           ].map((card, i) => (
             <div key={i} className={`bg-slate-900/40 border border-${card.color}-500/10 p-8 rounded-[3rem] text-center hover:scale-105 hover:border-${card.color}-500/30 transition-all group relative overflow-hidden flex flex-col items-center justify-start`}>
               <div className={`absolute -bottom-4 -right-4 text-8xl font-black text-${card.color}-500/5 group-hover:scale-110 transition-transform`}>{card.rank}</div>
