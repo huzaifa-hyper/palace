@@ -235,6 +235,46 @@ export const Game: React.FC<{
     setSelectedCardIds([]);
   };
 
+  const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
+    const currentPlayer = game.players[game.turnIndex];
+    if (!currentPlayer?.isHuman) return;
+
+    if (game.phase === 'SETUP') {
+      if (source !== 'HAND') return;
+      setSelectedCardIds(prev => {
+        if (prev.includes(card.id)) return prev.filter(id => id !== card.id);
+        if (prev.length < 3) return [...prev, card.id];
+        return prev;
+      });
+      setSelectedSource('HAND');
+    } else if (game.phase === 'PLAYING') {
+      setSelectedCardIds(prev => {
+        if (prev.includes(card.id)) {
+          const next = prev.filter(id => id !== card.id);
+          if (next.length === 0) setSelectedSource(null);
+          return next;
+        }
+        
+        if (selectedSource && selectedSource !== source) {
+          setSelectedSource(source);
+          return [card.id];
+        }
+
+        const firstId = prev[0];
+        const pool = source === 'HAND' ? currentPlayer.hand : currentPlayer.faceUpCards;
+        const firstCard = pool?.find(c => c.id === firstId);
+
+        if (firstCard && firstCard.rank !== card.rank) {
+          setSelectedSource(source);
+          return [card.id];
+        }
+        
+        setSelectedSource(source);
+        return [...prev, card.id];
+      });
+    }
+  };
+
   const currentPlayer = game.players[game.turnIndex];
 
   return (
@@ -282,9 +322,14 @@ export const Game: React.FC<{
           {selectedCardIds.length > 0 && (
             <button 
               onClick={() => game.phase === 'SETUP' ? confirmSetup() : playCards(selectedCardIds, selectedSource!)} 
-              className="bg-amber-500 text-slate-950 px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl scale-110"
+              disabled={game.phase === 'SETUP' && selectedCardIds.length !== 3}
+              className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl scale-110 transition-all ${
+                (game.phase === 'SETUP' && selectedCardIds.length === 3) || game.phase === 'PLAYING'
+                ? 'bg-amber-500 text-slate-950'
+                : 'bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed'
+              }`}
             >
-              {game.phase === 'SETUP' ? `Setup (${selectedCardIds.length}/3)` : 'Play Card'}
+              {game.phase === 'SETUP' ? `Fortify Stronghold (${selectedCardIds.length}/3)` : 'Play Card'}
             </button>
           )}
 
@@ -294,7 +339,7 @@ export const Game: React.FC<{
                   <PlayingCard faceDown />
                   {currentPlayer.faceUpCards[i] && (
                     <div className="absolute -top-2 -right-2 z-[100]">
-                       <PlayingCard {...currentPlayer.faceUpCards[i]} selected={selectedCardIds.includes(currentPlayer.faceUpCards[i].id)} onClick={() => { if(currentPlayer.hand.length === 0) { setSelectedSource('FACEUP'); setSelectedCardIds([currentPlayer.faceUpCards[i].id]); }}} />
+                       <PlayingCard {...currentPlayer.faceUpCards[i]} selected={selectedCardIds.includes(currentPlayer.faceUpCards[i].id)} onClick={() => handleCardSelection(currentPlayer.faceUpCards[i], 'FACEUP')} />
                     </div>
                   )}
                </div>
@@ -312,7 +357,7 @@ export const Game: React.FC<{
                   key={card.id} 
                   {...card} 
                   selected={selectedCardIds.includes(card.id)} 
-                  onClick={() => { setSelectedSource('HAND'); setSelectedCardIds(prev => prev.includes(card.id) ? [] : [card.id]); }}
+                  onClick={() => handleCardSelection(card, 'HAND')}
                   style={{ marginLeft: i === 0 ? '0' : '-1.5rem' }} 
                 />
               ))}
