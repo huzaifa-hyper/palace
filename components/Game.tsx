@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -17,7 +18,9 @@ import {
   Play,
   Crown,
   Users,
-  ArrowRight
+  ArrowRight,
+  // Fix: Added missing Layers icon import
+  Layers
 } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
@@ -74,9 +77,17 @@ export const Game: React.FC<{
     
     for (let i = 0; i < actualCount; i++) {
       const isHuman = mode === 'PASS_AND_PLAY' || i === 0;
+      let pName = "";
+      if (isHuman) {
+        pName = i === 0 ? userProfile.name : `Ruler ${i + 1}`;
+      } else {
+        // Label opponents explicitly to match "2 players = 1 opponent" logic
+        pName = `Opponent ${i}`;
+      }
+
       initialPlayers.push({
         id: i,
-        name: isHuman ? (i === 0 ? userProfile.name : `Ruler ${i + 1}`) : MOCK_PLAYER_NAMES[Math.floor(Math.random() * MOCK_PLAYER_NAMES.length)],
+        name: pName,
         isHuman,
         hiddenCards: newDeck.splice(0, 3),
         hand: newDeck.splice(0, 7),
@@ -93,7 +104,7 @@ export const Game: React.FC<{
       phase: 'SETUP',
       activeConstraint: 'NONE',
       winner: null,
-      logs: ["Distribution complete. Fortify your stronghold!"],
+      logs: ["Treasury distributed. Fortify your Stronghold!"],
       actionCount: 0
     };
   });
@@ -103,6 +114,7 @@ export const Game: React.FC<{
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const botThinkingRef = useRef(false);
+  const lastProcessedActionRef = useRef<number>(-1);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,9 +122,18 @@ export const Game: React.FC<{
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
+    // Specials always legal
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
+    // Constraint 7
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
-    if (card.rank === Rank.Seven) return true;
+    // Play 7 is always legal (as long as it beats top, but 7 resets to "lower than 7" next turn)
+    if (card.rank === Rank.Seven) {
+       if (currentPile.length === 0) return true;
+       const top = currentPile[currentPile.length - 1];
+       if (top.rank === Rank.Two) return true;
+       return 7 >= top.value; // Corrected: 7 must still beat top if top isn't 2
+    }
+    // Standard high card
     if (currentPile.length === 0) return true;
     const topCard = currentPile[currentPile.length - 1];
     if (topCard.rank === Rank.Two) return true;
@@ -130,6 +151,7 @@ export const Game: React.FC<{
       else if (source === 'HIDDEN') cardsToPlay = player.hiddenCards.filter(c => cardIds.includes(c.id));
 
       if (cardsToPlay.length === 0) return prev;
+      
       if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
         if (source === 'HIDDEN') {
           audioService.playError();
@@ -138,17 +160,27 @@ export const Game: React.FC<{
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
           p.hand = [...p.hand, ...cardsToPlay, ...prev.pile];
           nextPlayers[pIdx] = p;
-          return { ...prev, players: nextPlayers, pile: [], pileRotations: [], activeConstraint: 'NONE', turnIndex: (prev.turnIndex + 1) % prev.players.length, actionCount: prev.actionCount + 1 };
+          return {
+            ...prev,
+            players: nextPlayers,
+            pile: [],
+            pileRotations: [],
+            activeConstraint: 'NONE',
+            turnIndex: (prev.turnIndex + 1) % prev.players.length,
+            actionCount: prev.actionCount + 1,
+            logs: [...prev.logs.slice(-10), `${player.name} failed Blind Siege! 🚫`]
+          };
         }
         audioService.playError();
         return prev;
       }
 
       const rank = cardsToPlay[0].rank;
+      const newRots = cardsToPlay.map(() => Math.random() * 40 - 20);
       let nextIdx = (prev.turnIndex + 1) % prev.players.length;
       let nextConstraint: 'NONE' | 'LOWER_THAN_7' = 'NONE';
       let nextPile = [...prev.pile, ...cardsToPlay];
-      let newLog = `${player.name} played ${rank}.`;
+      let newLog = `${player.name} played ${cardsToPlay.length > 1 ? cardsToPlay.length + 'x ' : ''}${rank}.`;
 
       if (rank === Rank.Ten) {
         audioService.playBurn();
@@ -162,6 +194,9 @@ export const Game: React.FC<{
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
         nextConstraint = 'LOWER_THAN_7';
+      } else if (rank === Rank.Ace) {
+        audioService.playCardPlace();
+        newLog = `${player.name} played The Sovereign (A). Turn ends.`;
       } else {
         audioService.playCardPlace();
       }
@@ -174,11 +209,16 @@ export const Game: React.FC<{
 
       let nextDeck = [...prev.deck];
       const needed = 3 - p.hand.length;
-      if (needed > 0 && nextDeck.length > 0) p.hand.push(...nextDeck.splice(0, needed));
+      if (needed > 0 && nextDeck.length > 0) {
+        const drawn = nextDeck.splice(0, Math.min(needed, nextDeck.length));
+        p.hand = [...p.hand, ...drawn];
+      }
 
+      // Check if hand empty after draw to pull face-up
       if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
         p.hand = [...p.faceUpCards];
         p.faceUpCards = [];
+        newLog += " (Pulled Stronghold cards!)";
       }
 
       nextPlayers[pIdx] = p;
@@ -190,7 +230,19 @@ export const Game: React.FC<{
         audioService.playVictory();
       }
 
-      return { ...prev, players: nextPlayers, deck: nextDeck, pile: nextPile, turnIndex: nextIdx, activeConstraint: nextConstraint, phase: finalPhase, winner, logs: [...prev.logs.slice(-10), newLog], actionCount: prev.actionCount + 1 };
+      return {
+        ...prev,
+        players: nextPlayers,
+        deck: nextDeck,
+        pile: nextPile,
+        pileRotations: [...prev.pileRotations, ...newRots],
+        turnIndex: nextIdx,
+        activeConstraint: nextConstraint,
+        phase: finalPhase,
+        winner,
+        logs: [...prev.logs.slice(-10), newLog],
+        actionCount: prev.actionCount + 1
+      };
     });
     setSelectedCardIds([]);
     setSelectedSource(null);
@@ -199,12 +251,24 @@ export const Game: React.FC<{
   const pickUpPile = () => {
     setGame(prev => {
       const nextPlayers = [...prev.players];
-      const p = { ...nextPlayers[prev.turnIndex] };
-      p.hand.push(...prev.pile);
-      nextPlayers[prev.turnIndex] = p;
-      return { ...prev, players: nextPlayers, pile: [], activeConstraint: 'NONE', turnIndex: (prev.turnIndex + 1) % prev.players.length, actionCount: prev.actionCount + 1, logs: [...prev.logs.slice(-10), `${p.name} inherited the pile.`] };
+      const pIdx = prev.turnIndex;
+      const p = { ...nextPlayers[pIdx] };
+      p.hand = [...p.hand, ...prev.pile];
+      nextPlayers[pIdx] = p;
+      return {
+        ...prev,
+        players: nextPlayers,
+        pile: [],
+        pileRotations: [],
+        activeConstraint: 'NONE',
+        turnIndex: (prev.turnIndex + 1) % prev.players.length,
+        actionCount: prev.actionCount + 1,
+        logs: [...prev.logs.slice(-10), `${p.name} inherited the pile.`]
+      };
     });
     audioService.playError();
+    setSelectedCardIds([]);
+    setSelectedSource(null);
   };
 
   const confirmSetup = () => {
@@ -220,7 +284,9 @@ export const Game: React.FC<{
 
       if (mode === 'VS_BOT') {
         for (let i = 1; i < nextPlayers.length; i++) {
+          if (nextPlayers[i].isHuman) continue;
           const b = { ...nextPlayers[i] };
+          // Bots choose 3 highest cards for Stronghold
           const sorted = [...b.hand].sort((x, y) => y.value - x.value);
           b.faceUpCards = sorted.slice(0, 3);
           b.hand = sorted.slice(3);
@@ -230,9 +296,17 @@ export const Game: React.FC<{
       }
 
       const ready = nextPlayers.every(x => x.hasSelectedSetup);
-      return { ...prev, players: nextPlayers, phase: ready ? 'PLAYING' : 'SETUP', turnIndex: ready ? 0 : (pIdx + 1) % nextPlayers.length, logs: ready ? ["Battle Commenced!"] : prev.logs, actionCount: prev.actionCount + 1 };
+      return {
+        ...prev,
+        players: nextPlayers,
+        phase: ready ? 'PLAYING' : 'SETUP',
+        turnIndex: ready ? 0 : (pIdx + 1) % nextPlayers.length,
+        logs: ready ? ["Battle Commenced!"] : prev.logs,
+        actionCount: prev.actionCount + 1
+      };
     });
     setSelectedCardIds([]);
+    setSelectedSource(null);
   };
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
@@ -254,26 +328,91 @@ export const Game: React.FC<{
           if (next.length === 0) setSelectedSource(null);
           return next;
         }
-        
         if (selectedSource && selectedSource !== source) {
           setSelectedSource(source);
           return [card.id];
         }
-
         const firstId = prev[0];
         const pool = source === 'HAND' ? currentPlayer.hand : currentPlayer.faceUpCards;
         const firstCard = pool?.find(c => c.id === firstId);
-
         if (firstCard && firstCard.rank !== card.rank) {
           setSelectedSource(source);
           return [card.id];
         }
-        
         setSelectedSource(source);
         return [...prev, card.id];
       });
     }
   };
+
+  // Strategic Bot Logic
+  useEffect(() => {
+    const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex]?.isHuman && !game.winner;
+    if (!isBotTurn || botThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
+
+    botThinkingRef.current = true;
+    lastProcessedActionRef.current = game.actionCount;
+    const thinkingTime = 1000 + Math.random() * 1000;
+
+    const timer = setTimeout(() => {
+      const bot = game.players[game.turnIndex];
+      if (!bot) {
+        botThinkingRef.current = false;
+        return;
+      }
+
+      let source: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
+      let pool = bot.hand;
+      if (bot.hand.length === 0) {
+        if (bot.faceUpCards.length > 0) { source = 'FACEUP'; pool = bot.faceUpCards; }
+        else if (bot.hiddenCards.length > 0) { source = 'HIDDEN'; pool = [bot.hiddenCards[0]]; }
+      }
+
+      // 1. Identify all legal moves
+      const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
+
+      if (legal.length > 0) {
+        // Group by rank
+        const rankGroups: Record<string, Card[]> = {};
+        legal.forEach(c => {
+          if (!rankGroups[c.rank]) rankGroups[c.rank] = [];
+          rankGroups[c.rank].push(c);
+        });
+
+        const ranks = Object.keys(rankGroups).sort((a, b) => getCardValue(a as Rank) - getCardValue(b as Rank));
+
+        // Strategy:
+        // A. If we have a 10 and pile is big (> 3 cards), use it!
+        if (rankGroups[Rank.Ten] && game.pile.length >= 3) {
+          playCards([rankGroups[Rank.Ten][0].id], source);
+        }
+        // B. If pile is empty, play lowest non-special cards
+        else if (game.pile.length === 0) {
+          const nonSpecials = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten && r !== Rank.Seven && r !== Rank.Ace);
+          const bestRank = nonSpecials.length > 0 ? nonSpecials[0] : ranks[0];
+          playCards(rankGroups[bestRank].map(c => c.id), source);
+        }
+        // C. Use 7 if we can and next player has few cards
+        else if (rankGroups[Rank.Seven]) {
+           playCards(rankGroups[Rank.Seven].map(c => c.id), source);
+        }
+        // D. Play the lowest legal card that isn't a 2 or 10 (save those for emergencies)
+        else {
+          const regularRanks = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten);
+          const bestRank = regularRanks.length > 0 ? regularRanks[0] : ranks[0];
+          playCards(rankGroups[bestRank].map(c => c.id), source);
+        }
+      } else {
+        pickUpPile();
+      }
+      botThinkingRef.current = false;
+    }, thinkingTime);
+
+    return () => {
+      clearTimeout(timer);
+      botThinkingRef.current = false;
+    };
+  }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
 
   const currentPlayer = game.players[game.turnIndex];
 
@@ -289,58 +428,90 @@ export const Game: React.FC<{
         </div>
       </header>
 
-      <div className="h-12 shrink-0 flex items-center justify-center gap-4 bg-slate-950/40 border-b border-white/5">
+      {/* Opponents Hub */}
+      <div className="h-14 shrink-0 flex items-center justify-center gap-6 bg-slate-950/40 border-b border-white/5 overflow-x-auto no-scrollbar px-4">
         {game.players.map(p => (
-          <div key={p.id} className={`flex items-center gap-2 transition-all ${game.turnIndex === p.id ? 'opacity-100 scale-110' : 'opacity-40'}`}>
-             <div className={`w-8 h-8 rounded-lg bg-slate-800 border flex items-center justify-center ${game.turnIndex === p.id ? 'border-amber-500' : 'border-slate-700'}`}>
-               {p.isHuman ? <Users size={14} className="text-purple-400" /> : <Bot size={16} className="text-amber-500" />}
+          <div key={p.id} className={`flex items-center gap-3 transition-all duration-300 ${game.turnIndex === p.id ? 'opacity-100 scale-105' : 'opacity-40'}`}>
+             <div className={`w-10 h-10 rounded-xl bg-slate-800 border flex items-center justify-center shadow-lg ${game.turnIndex === p.id ? 'border-amber-500 ring-4 ring-amber-500/20' : 'border-slate-700'}`}>
+               {p.isHuman ? <Users size={18} className="text-purple-400" /> : <Bot size={20} className="text-amber-500" />}
              </div>
-             <p className="text-[10px] font-black uppercase text-white">{p.name} ({p.hand.length})</p>
+             <div className="flex flex-col">
+               <p className="text-[10px] font-black uppercase text-white leading-none mb-1">{p.name}</p>
+               <div className="flex items-center gap-1.5">
+                  <Layers size={10} className="text-slate-500" />
+                  <span className="text-[9px] font-mono font-bold text-amber-500">{p.hand.length}</span>
+               </div>
+             </div>
           </div>
         ))}
       </div>
 
-      <main className="flex-1 flex flex-col items-center justify-between min-h-0 py-2 relative">
-        <div className="absolute top-4 bg-slate-900/90 border border-amber-500/30 px-6 py-2 rounded-2xl flex items-center gap-3 shadow-2xl backdrop-blur-xl z-50">
-          <Crown size={14} className="text-amber-500" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-white">{currentPlayer?.name}'s Turn</span>
+      <main className="flex-1 flex flex-col items-center justify-between min-h-0 py-4 relative">
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-amber-500/30 px-8 py-3 rounded-full flex items-center gap-4 shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl z-50">
+          <div className="animate-pulse w-2 h-2 rounded-full bg-amber-500"></div>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white">
+            {currentPlayer?.id === 0 ? "Your Strategic Turn" : `${currentPlayer?.name}'s Command`}
+          </span>
         </div>
 
-        <div className="flex-1 w-full flex items-center justify-center">
-          <div className="relative w-40 h-40 md:w-56 md:h-56 flex items-center justify-center">
+        {/* The Battleground Pile */}
+        <div className="flex-1 w-full flex items-center justify-center relative min-h-0">
+          <div className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
              {game.pile.length === 0 ? (
-                <div className="w-16 md:w-20 aspect-[2.5/3.5] border-2 border-dashed border-white/5 rounded-xl flex items-center justify-center text-white/5"><Swords size={28} /></div>
+                <div className="w-20 md:w-24 aspect-[2.5/3.5] border-2 border-dashed border-white/10 rounded-2xl flex items-center justify-center text-white/5 animate-pulse">
+                  <Swords size={40} />
+                </div>
              ) : (
-                game.pile.slice(-5).map((card, i) => (
-                  <div key={card.id} className="absolute"><PlayingCard {...card} /></div>
+                game.pile.slice(-10).map((card, i) => (
+                  <div key={card.id} className="absolute transition-all duration-500" style={{ transform: `rotate(${game.pileRotations[game.pile.length - 1 - (game.pile.slice(-10).length - 1 - i)]}deg)` }}>
+                    <PlayingCard {...card} dimmed={!currentPlayer?.isHuman && game.phase === 'PLAYING'} />
+                  </div>
                 ))
+             )}
+             
+             {game.activeConstraint === 'LOWER_THAN_7' && (
+               <div className="absolute -top-8 bg-emerald-500 text-slate-950 px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-2xl animate-bounce z-[60]">Must play ≤ 7</div>
              )}
           </div>
         </div>
 
-        <div className="w-full shrink-0 flex flex-col items-center gap-3 pb-2">
+        {/* Controls and Strongholds */}
+        <div className="w-full shrink-0 flex flex-col items-center gap-4 pb-4">
           {selectedCardIds.length > 0 && (
-            <button 
-              onClick={() => game.phase === 'SETUP' ? confirmSetup() : playCards(selectedCardIds, selectedSource!)} 
-              disabled={game.phase === 'SETUP' && selectedCardIds.length !== 3}
-              className={`px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl scale-110 transition-all ${
-                (game.phase === 'SETUP' && selectedCardIds.length === 3) || game.phase === 'PLAYING'
-                ? 'bg-amber-500 text-slate-950'
-                : 'bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed'
-              }`}
-            >
-              {game.phase === 'SETUP' ? `Fortify Stronghold (${selectedCardIds.length}/3)` : 'Play Card'}
-            </button>
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <button 
+                onClick={() => game.phase === 'SETUP' ? confirmSetup() : playCards(selectedCardIds, selectedSource!)} 
+                disabled={game.phase === 'SETUP' && selectedCardIds.length !== 3}
+                className={`px-10 py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] shadow-[0_20px_40px_rgba(0,0,0,0.5)] scale-110 transition-all border-b-4 flex items-center gap-3 ${
+                  (game.phase === 'SETUP' && selectedCardIds.length === 3) || game.phase === 'PLAYING'
+                  ? 'bg-amber-500 text-slate-950 border-amber-600 hover:brightness-110 active:scale-95'
+                  : 'bg-slate-800 text-slate-500 border-slate-900 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {game.phase === 'SETUP' ? <ShieldCheck size={16} /> : <Zap size={16} />}
+                {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : 'Execute Move'}
+              </button>
+            </div>
           )}
 
-          <div className="flex justify-center gap-3 p-3 bg-slate-900/60 rounded-[2rem] border border-white/5">
-             {currentPlayer?.hiddenCards.map((c, i) => (
-               <div key={i} className="relative">
-                  <PlayingCard faceDown />
-                  {currentPlayer.faceUpCards[i] && (
-                    <div className="absolute -top-2 -right-2 z-[100]">
-                       <PlayingCard {...currentPlayer.faceUpCards[i]} selected={selectedCardIds.includes(currentPlayer.faceUpCards[i].id)} onClick={() => handleCardSelection(currentPlayer.faceUpCards[i], 'FACEUP')} />
+          <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5 shadow-inner">
+             {[0, 1, 2].map((i) => (
+               <div key={i} className="relative group">
+                  <PlayingCard faceDown className="scale-95" />
+                  {currentPlayer?.faceUpCards[i] && (
+                    <div className="absolute -top-3 -right-3 z-[100] drop-shadow-2xl">
+                       <PlayingCard 
+                         {...currentPlayer.faceUpCards[i]} 
+                         selected={selectedCardIds.includes(currentPlayer.faceUpCards[i].id)} 
+                         onClick={() => handleCardSelection(currentPlayer.faceUpCards[i], 'FACEUP')} 
+                         highlight={currentPlayer.hand.length === 0 && isLegalMove(currentPlayer.faceUpCards[i], game.pile, game.activeConstraint)}
+                       />
                     </div>
+                  )}
+                  {currentPlayer?.isHuman && game.phase === 'PLAYING' && currentPlayer.hand.length === 0 && currentPlayer.faceUpCards.length === 0 && i === 0 && (
+                    <button onClick={() => playCards([currentPlayer.hiddenCards[0].id], 'HIDDEN')} className="absolute inset-0 bg-amber-500/30 rounded-xl border-2 border-amber-500 animate-pulse flex items-center justify-center z-[150] shadow-2xl">
+                      <Eye size={24} className="text-white drop-shadow-md" />
+                    </button>
                   )}
                </div>
              ))}
@@ -348,17 +519,27 @@ export const Game: React.FC<{
         </div>
       </main>
 
-      <footer className="h-52 md:h-60 bg-slate-950 border-t border-white/10 flex items-center justify-center shrink-0">
-        <button onClick={pickUpPile} className="absolute -top-10 left-4 bg-rose-600 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border border-rose-400 z-[310]">Inherit Pile</button>
-        <div className="w-full flex justify-center items-end overflow-x-auto no-scrollbar pt-10">
-           <div className="flex items-center px-10 pb-8 min-w-max">
+      <footer className="h-56 md:h-64 bg-slate-950 border-t border-white/10 flex items-center justify-center shrink-0 relative overflow-visible">
+        {game.phase === 'PLAYING' && currentPlayer?.isHuman && (
+           <button onClick={pickUpPile} className="absolute -top-12 left-6 bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] px-6 py-3 rounded-2xl border-b-4 border-rose-800 uppercase tracking-[0.2em] z-[310] transition-all shadow-xl active:translate-y-1 active:border-b-0">
+             Inherit Pile
+           </button>
+        )}
+        
+        <div className="w-full h-full flex justify-center items-end overflow-x-auto no-scrollbar pt-12 pb-8">
+           <div className="flex items-center px-16 min-w-max">
               {currentPlayer?.hand.map((card, i) => (
                 <PlayingCard 
                   key={card.id} 
                   {...card} 
                   selected={selectedCardIds.includes(card.id)} 
                   onClick={() => handleCardSelection(card, 'HAND')}
-                  style={{ marginLeft: i === 0 ? '0' : '-1.5rem' }} 
+                  highlight={currentPlayer.isHuman && isLegalMove(card, game.pile, game.activeConstraint)}
+                  style={{ 
+                    marginLeft: i === 0 ? '0' : (currentPlayer.hand.length > 10 ? '-2.5rem' : '-2rem'),
+                    transform: selectedCardIds.includes(card.id) ? 'translateY(-2rem) scale(1.1)' : 'translateY(0)',
+                    zIndex: selectedCardIds.includes(card.id) ? 1000 : i
+                  }} 
                 />
               ))}
            </div>
@@ -366,12 +547,16 @@ export const Game: React.FC<{
       </footer>
 
       {game.winner && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl flex items-center justify-center z-[1000] p-6">
-           <div className="bg-slate-900 border border-amber-500/30 p-12 rounded-[2.5rem] text-center shadow-2xl max-w-sm w-full">
-              <Trophy size={56} className="text-amber-500 mx-auto mb-8" />
-              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase">Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-widest text-xs mb-10">{game.winner} Wins</p>
-              <button onClick={onExit} className="w-full bg-amber-500 text-slate-950 font-black py-4 rounded-2xl">Lobby</button>
+        <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center z-[1000] p-8">
+           <div className="bg-slate-900/90 border-2 border-amber-500/50 p-16 rounded-[4rem] text-center shadow-[0_0_100px_rgba(245,158,11,0.2)] max-w-md w-full animate-in zoom-in-95 duration-500">
+              <div className="w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-10 shadow-[0_0_40px_rgba(245,158,11,0.4)]">
+                <Trophy size={56} className="text-slate-900" />
+              </div>
+              <h2 className="text-5xl font-playfair font-black text-white mb-4 uppercase tracking-tight">The Throne Claimed</h2>
+              <p className="text-amber-400 font-black uppercase tracking-[0.3em] text-sm mb-12">{game.winner} has risen to power</p>
+              <button onClick={onExit} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-5 rounded-3xl transition-all uppercase tracking-widest text-xs border-b-4 border-amber-600">
+                Lobby
+              </button>
            </div>
         </div>
       )}
