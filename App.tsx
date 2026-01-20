@@ -20,7 +20,8 @@ import {
   Lock,
   ArrowRight,
   Hash,
-  PlayCircle
+  PlayCircle,
+  Clock
 } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
@@ -41,9 +42,7 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<{ mode: GameMode; playerCount: number } | null>(null);
   const [tempName, setTempName] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(true);
-  const [setupStep, setSetupStep] = useState<'IDLE' | 'CREATE_SELECT' | 'JOIN_INPUT' | 'WAITING'>('IDLE');
-  const [joinCode, setJoinCode] = useState('');
-  const [roomInfo, setRoomInfo] = useState<{ code: string; current: number; max: number } | null>(null);
+  const [setupStep, setSetupStep] = useState<'IDLE' | 'AI_SELECT' | 'WAITING'>('IDLE');
   const [multiplayerState, setMultiplayerState] = useState<GameStateSnapshot | null>(null);
 
   const { address, isConnected, chainId, connect, disconnect, switchChain, isConnecting } = useWallet();
@@ -68,69 +67,13 @@ export default function App() {
     setGameConfig(null);
     setSetupStep('IDLE');
     setMultiplayerState(null);
-    setRoomInfo(null);
     setActiveTab('lobby');
   }, []);
-
-  const setupP2PListeners = useCallback(() => {
-    p2pService.onGameState((state) => {
-      setMultiplayerState(state);
-      setRoomInfo(prev => prev ? { ...prev, current: state.players.length, max: state.maxPlayers } : { code: p2pService.getRoomId() || "", current: state.players.length, max: state.maxPlayers });
-      
-      if (state.phase !== 'LOBBY' && !gameConfig) {
-          setGameConfig({ mode: 'ONLINE_HOST', playerCount: state.maxPlayers }); 
-      }
-    });
-    p2pService.onConnectionStatus((status) => {
-      if (status === 'DISCONNECTED') exitGame();
-    });
-  }, [gameConfig, exitGame]);
-
-  const handleCreateRoom = async (count: number) => {
-    if (!userProfile) return;
-    try {
-      const data = await p2pService.createRoom(SIGNALING_SERVER, userProfile.name, count);
-      setRoomInfo({ code: data.roomId, current: 1, max: count });
-      setSetupStep('WAITING');
-      setupP2PListeners();
-    } catch (e) {
-      alert("Failed to create room");
-    }
-  };
-
-  const handleJoinRoom = async (codeOverride?: string) => {
-    const code = codeOverride || joinCode;
-    if (!userProfile || !code) return;
-    try {
-      const data = await p2pService.joinRoom(SIGNALING_SERVER, code, userProfile.name);
-      setRoomInfo({ code: data.roomId, current: 0, max: 0 }); 
-      setSetupStep('WAITING');
-      setupP2PListeners();
-    } catch (e) {
-      alert("Room not found or full");
-      setSetupStep('IDLE');
-    }
-  };
-
-  const handleQuickMatch = async () => {
-    if (!userProfile) return;
-    try {
-      const data = await p2pService.quickMatch(SIGNALING_SERVER, userProfile.name);
-      if (data.isJoin) {
-        handleJoinRoom(data.roomId);
-      } else {
-        setRoomInfo({ code: data.roomId, current: 1, max: 2 });
-        setSetupStep('WAITING');
-        setupP2PListeners();
-      }
-    } catch (e) {
-      alert("Quickmatch unavailable");
-    }
-  };
 
   const startLocalGame = (mode: GameMode, playerCount: number) => {
     if (!isConnected || !isEligible) return;
     setGameConfig({ mode, playerCount });
+    setSetupStep('IDLE');
   };
 
   if (!hasMounted) return null;
@@ -219,87 +162,85 @@ export default function App() {
                <div className="grid lg:grid-cols-2 gap-8">
                   <div className="space-y-6">
                      <div className="text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2"><Smartphone size={14} /> Training Grounds</div>
-                     <div className="grid sm:grid-cols-2 gap-6">
-                       <button onClick={() => startLocalGame('VS_BOT', 2)} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-105">
-                          <Bot className="w-8 h-8 text-emerald-400 mb-4" />
-                          <h3 className="text-xl font-bold text-white font-playfair">AI Duel</h3>
-                          <p className="text-slate-500 text-[10px] uppercase mt-1">Single Player Practice</p>
-                       </button>
-                       <button onClick={() => startLocalGame('PASS_AND_PLAY', 2)} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-105">
-                          <Users className="w-8 h-8 text-purple-400 mb-4" />
-                          <h3 className="text-xl font-bold text-white font-playfair">Local Pass</h3>
-                          <p className="text-slate-500 text-[10px] uppercase mt-1">Two Player Couch Mode</p>
-                       </button>
-                     </div>
+                     
+                     {setupStep === 'AI_SELECT' ? (
+                        <div className="bg-slate-900 border border-emerald-500/20 p-8 rounded-[2.5rem] animate-in slide-in-from-left-4">
+                          <div className="flex justify-between items-center mb-8">
+                             <h3 className="font-playfair font-black text-2xl text-emerald-400">AI Challenge</h3>
+                             <button onClick={() => setSetupStep('IDLE')} className="p-2 text-slate-500 hover:text-white transition-colors"><X size={20}/></button>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-6 uppercase tracking-widest font-black">Select Total Rulers (You + AI Bots)</p>
+                          <div className="grid grid-cols-3 gap-6">
+                            {[2, 3, 4].map(num => (
+                              <button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-800 hover:bg-emerald-600 text-white py-8 rounded-2xl font-black text-2xl border border-white/5 transition-all hover:scale-105 active:scale-95">{num}</button>
+                            ))}
+                          </div>
+                       </div>
+                     ) : (
+                       <div className="grid sm:grid-cols-2 gap-6">
+                        <button onClick={() => setSetupStep('AI_SELECT')} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-105 group relative overflow-hidden">
+                            <div className="absolute -right-4 -top-4 text-white/5 transform group-hover:scale-110 transition-transform"><Bot size={80} /></div>
+                            <Bot className="w-8 h-8 text-emerald-400 mb-4" />
+                            <h3 className="text-xl font-bold text-white font-playfair">AI Duel</h3>
+                            <p className="text-slate-500 text-[10px] uppercase mt-1">Multi-Ruler AI Combat</p>
+                        </button>
+                        <button onClick={() => startLocalGame('PASS_AND_PLAY', 2)} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-105 group relative overflow-hidden">
+                            <div className="absolute -right-4 -top-4 text-white/5 transform group-hover:scale-110 transition-transform"><Users size={80} /></div>
+                            <Users className="w-8 h-8 text-purple-400 mb-4" />
+                            <h3 className="text-xl font-bold text-white font-playfair">Local Pass</h3>
+                            <p className="text-slate-500 text-[10px] uppercase mt-1">Shared Device Combat</p>
+                        </button>
+                       </div>
+                     )}
                   </div>
 
                   <div className="space-y-6">
                      <div className="text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2"><Globe size={14} /> Global Sovereignty</div>
                      
-                     {setupStep === 'WAITING' ? (
-                       <div className="bg-slate-900 border-2 border-blue-500/50 p-10 rounded-[2.5rem] flex flex-col items-center justify-center text-center space-y-6">
-                          <Loader2 size={40} className="text-blue-400 animate-spin" />
-                          <div>
-                             <h4 className="text-2xl font-playfair font-black text-white uppercase tracking-widest">Waiting for Rulers</h4>
-                             <p className="text-xs text-slate-500 uppercase font-black">{roomInfo?.current} / {roomInfo?.max || '?'} Ready</p>
-                          </div>
-                          <div className="bg-slate-950 px-10 py-6 rounded-3xl border border-white/10">
-                             <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-2">Room Secret</p>
-                             <div className="text-4xl font-mono font-black text-blue-400 tracking-widest">{roomInfo?.code}</div>
-                          </div>
-                          <button onClick={exitGame} className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Abort</button>
-                       </div>
-                     ) : setupStep === 'CREATE_SELECT' ? (
-                       <div className="bg-slate-900 border border-blue-500/20 p-8 rounded-[2.5rem]">
-                          <div className="flex justify-between items-center mb-8">
-                             <h3 className="font-playfair font-black text-2xl text-blue-400">Assemble Legions</h3>
-                             <button onClick={() => setSetupStep('IDLE')} className="p-2 text-slate-500"><X size={20}/></button>
-                          </div>
-                          <div className="grid grid-cols-3 gap-6">
-                            {[2, 3, 4].map(num => (
-                              <button key={num} onClick={() => handleCreateRoom(num)} className="bg-slate-800 hover:bg-blue-600 text-white py-8 rounded-2xl font-black text-2xl border border-white/5">{num}</button>
-                            ))}
-                          </div>
-                       </div>
-                     ) : setupStep === 'JOIN_INPUT' ? (
-                       <div className="bg-slate-900 border border-blue-500/20 p-8 rounded-[2.5rem]">
-                          <div className="flex justify-between items-center mb-8">
-                             <h3 className="font-playfair font-black text-2xl text-blue-400">Enter Secret</h3>
-                             <button onClick={() => setSetupStep('IDLE')} className="p-2 text-slate-500"><X size={20}/></button>
-                          </div>
-                          <div className="space-y-6 text-center">
-                             <input type="text" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="CODE" className="w-full bg-slate-800 border-2 border-slate-700 rounded-2xl px-4 py-6 text-center text-4xl font-mono font-black text-blue-400 outline-none" maxLength={6} />
-                             <button onClick={() => handleJoinRoom()} disabled={joinCode.length < 6} className="w-full bg-blue-500 text-slate-950 py-5 rounded-2xl font-black text-xs uppercase disabled:opacity-50">Join Stronghold</button>
-                          </div>
-                       </div>
-                     ) : (
-                       <div className="bg-slate-900/60 p-8 rounded-[2.5rem] border border-blue-500/10 grid grid-cols-2 gap-4">
-                          <button onClick={() => setSetupStep('CREATE_SELECT')} className="flex flex-col items-center justify-center gap-4 bg-slate-950/60 border border-white/5 rounded-3xl p-6 hover:bg-blue-500/10">
-                             <Zap className="text-blue-400" />
-                             <span className="text-[10px] font-black uppercase text-slate-300">Create</span>
-                          </button>
-                          <button onClick={() => setSetupStep('JOIN_INPUT')} className="flex flex-col items-center justify-center gap-4 bg-slate-950/60 border border-white/5 rounded-3xl p-6 hover:bg-blue-500/10">
-                             <Hash className="text-blue-400" />
-                             <span className="text-[10px] font-black uppercase text-slate-300">Join</span>
-                          </button>
-                          <button onClick={handleQuickMatch} className="col-span-2 flex items-center justify-center gap-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-3xl p-6 font-black uppercase text-xs shadow-xl">
-                             <PlayCircle size={20} /> Quick Match
-                          </button>
-                       </div>
-                     )}
+                     <div className="bg-slate-900/40 p-12 rounded-[2.5rem] border border-blue-500/10 flex flex-col items-center justify-center text-center relative overflow-hidden min-h-[300px]">
+                        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none"></div>
+                        <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mb-6">
+                           <Clock className="w-10 h-10 text-blue-400 animate-pulse" />
+                        </div>
+                        <h3 className="text-3xl font-playfair font-black text-blue-100 mb-2">Coming Soon</h3>
+                        <p className="text-slate-500 text-xs font-light max-w-[240px] leading-relaxed uppercase tracking-widest mb-8">
+                           Global multiplayer and ranked quick-match are being prepared for the next stage of the testnet.
+                        </p>
+                        
+                        <div className="flex gap-4 opacity-40 pointer-events-none grayscale">
+                           <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-white/5">
+                              <Zap size={14} className="text-blue-400" />
+                              <span className="text-[10px] font-black uppercase">Create</span>
+                           </div>
+                           <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-white/5">
+                              <Hash size={14} className="text-blue-400" />
+                              <span className="text-[10px] font-black uppercase">Join</span>
+                           </div>
+                           <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-white/5">
+                              <PlayCircle size={14} className="text-blue-400" />
+                              <span className="text-[10px] font-black uppercase">Quick</span>
+                           </div>
+                        </div>
+                     </div>
                   </div>
                </div>
              ) : (
-               <div className="bg-slate-900/60 p-12 rounded-[3rem] text-center space-y-8">
-                  <Lock className="w-20 h-20 text-slate-700 mx-auto" />
+               <div className="bg-slate-900/60 p-12 rounded-[3rem] text-center space-y-8 shadow-2xl border border-white/5">
+                  <div className="relative inline-block">
+                    <Lock className="w-20 h-20 text-slate-700 mx-auto" />
+                    <div className="absolute -inset-4 bg-amber-500/5 blur-2xl rounded-full"></div>
+                  </div>
                   <div>
                     <h3 className="text-3xl font-playfair font-black text-amber-100">Access Restricted</h3>
-                    <p className="text-slate-400 text-sm font-light mt-2">Connect your Somnia wallet with 1.0 STT to play.</p>
+                    <p className="text-slate-400 text-sm font-light mt-2 max-w-sm mx-auto">Connect your Somnia wallet and ensure a balance of at least {MIN_STT_REQUIRED} STT to enter the Palace.</p>
                   </div>
                   {!isConnected ? (
-                    <button onClick={connect} className="bg-amber-500 text-slate-950 px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Connect Wallet</button>
+                    <button onClick={connect} className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95">Connect Wallet</button>
                   ) : (
-                    <a href="https://testnet.somnia.network/" target="_blank" className="text-amber-500 underline text-xs font-black uppercase">Refill Treasury</a>
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="bg-amber-500/10 border border-amber-500/20 px-6 py-3 rounded-xl text-amber-500 text-xs font-bold uppercase">Treasury Check: {parseFloat(balance).toFixed(2)} STT</div>
+                      <a href="https://testnet.somnia.network/" target="_blank" className="text-amber-500 underline text-xs font-black uppercase tracking-widest hover:text-amber-400 transition-colors">Refill STT at Faucet</a>
+                    </div>
                   )}
                </div>
              )}
@@ -316,13 +257,33 @@ export default function App() {
             { id: 'rules', icon: BookOpen, label: 'Codex' },
             { id: 'arbiter', icon: HelpCircle, label: 'Arbiter' }
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center gap-2 ${activeTab === tab.id ? 'text-amber-500' : 'text-slate-600'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center gap-2 transition-all ${activeTab === tab.id ? 'text-amber-500 scale-110' : 'text-slate-600'}`}>
               <tab.icon size={22} />
-              <span className="text-[10px] font-black uppercase">{tab.label}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest">{tab.label}</span>
             </button>
           ))}
         </div>
       </nav>
+
+      {/* Header for Desktop */}
+      <header className="hidden md:flex items-center justify-between px-16 py-8 max-w-7xl mx-auto">
+         <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center shadow-lg"><Crown className="text-slate-900" /></div>
+            <h1 className="text-3xl font-playfair font-black text-white tracking-tighter">Palace Rulers</h1>
+         </div>
+         <div className="flex gap-12">
+            {['lobby', 'rules', 'arbiter'].map((tab) => (
+               <button 
+                  key={tab}
+                  onClick={() => setActiveTab(tab as any)} 
+                  className={`text-[11px] font-black uppercase tracking-[0.3em] transition-all relative py-2 ${activeTab === tab ? 'text-amber-500' : 'text-slate-600 hover:text-slate-300'}`}
+               >
+                  {tab}
+                  {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"></div>}
+               </button>
+            ))}
+         </div>
+      </header>
     </div>
   );
 }
