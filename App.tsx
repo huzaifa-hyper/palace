@@ -9,7 +9,6 @@ import {
   Smartphone, 
   Globe, 
   Wallet, 
-  AlertTriangle, 
   X, 
   Bot, 
   Loader2, 
@@ -18,13 +17,14 @@ import {
   Users,
   Zap,
   Lock,
-  ArrowRight,
-  Hash,
   PlayCircle,
   Clock,
   Trophy,
   Coins,
-  Ticket
+  Ticket,
+  Share2,
+  Users2,
+  ShieldEllipsis
 } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
@@ -35,8 +35,6 @@ import { SOMNIA_CHAIN_ID, web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
 import { useMinimumBalance, MIN_STT_REQUIRED } from './hooks/useMinimumBalance';
 import { useWallet } from './hooks/useWallet';
-
-const SIGNALING_SERVER = "http://localhost:8080"; 
 
 export default function App() {
   const [hasMounted, setHasMounted] = useState(false);
@@ -165,14 +163,14 @@ export default function App() {
              )}
 
              {isConnected && isEligible ? (
-               <div className="grid lg:grid-cols-3 gap-8">
+               <div className="grid md:grid-cols-2 gap-8">
                   
                   {/* Zone 1: Training (The Academy) */}
                   <div className="space-y-6">
                      <div className="text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2 px-2"><Smartphone size={14} /> The Academy</div>
                      
                      {setupStep === 'AI_SELECT' ? (
-                        <div className="bg-slate-900 border border-emerald-500/20 p-6 rounded-[2.5rem] animate-in slide-in-from-left-4 h-full flex flex-col">
+                        <div className="bg-slate-900 border border-emerald-500/20 p-6 rounded-[2.5rem] animate-in slide-in-from-left-4 h-full flex flex-col min-h-[360px]">
                           <div className="flex justify-between items-center mb-6">
                              <h3 className="font-playfair font-black text-xl text-emerald-400 uppercase tracking-tight">AI Challenge</h3>
                              <button onClick={() => setSetupStep('IDLE')} className="p-1.5 text-slate-500 hover:text-white transition-colors bg-slate-800 rounded-full"><X size={16}/></button>
@@ -185,7 +183,7 @@ export default function App() {
                           </div>
                        </div>
                      ) : (
-                       <div className="grid grid-cols-1 gap-6">
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 h-full">
                         <button onClick={() => setSetupStep('AI_SELECT')} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] group relative overflow-hidden shadow-xl border-l-emerald-500/20 border-l-4">
                             <div className="absolute -right-6 -top-6 text-emerald-500/5 transform group-hover:scale-110 transition-transform"><Bot size={120} /></div>
                             <Bot className="w-8 h-8 text-emerald-400 mb-4" />
@@ -205,7 +203,7 @@ export default function App() {
                   {/* Zone 2: Tournament (The Arena) */}
                   <div className="space-y-6">
                     <div className="text-amber-500/60 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2 px-2"><Trophy size={14} /> The Arena</div>
-                    <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border-2 border-amber-500/20 p-8 rounded-[2.5rem] h-full flex flex-col relative group overflow-hidden shadow-2xl">
+                    <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border-2 border-amber-500/20 p-8 rounded-[2.5rem] flex flex-col relative group overflow-hidden shadow-2xl min-h-[360px]">
                         <div className="absolute -right-10 -bottom-10 text-amber-500/5 rotate-12 group-hover:scale-110 transition-transform"><Trophy size={200} /></div>
                         
                         <div className="flex items-center justify-between mb-8">
@@ -227,17 +225,48 @@ export default function App() {
                            </div>
                         </div>
 
-                        <button className="w-full mt-10 bg-amber-500 text-slate-950 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-400 transition-all hover:scale-105 group-hover:shadow-amber-500/10 active:scale-95">
+                        <button className="w-full mt-10 bg-amber-500 text-slate-950 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-400 transition-all hover:scale-105 active:scale-95 z-10">
                            Join Prize Pool
                         </button>
                     </div>
                   </div>
 
-                  {/* Zone 3: Multiplayer (The World) */}
+                  {/* Zone 3: Project Exclusive (Sovereign Alliances) */}
+                  <div className="space-y-6">
+                    <div className="text-indigo-400 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2 px-2"><Share2 size={14} /> Sovereign Alliances</div>
+                    <div className="bg-gradient-to-br from-indigo-950/40 to-slate-900 border border-indigo-500/20 p-8 rounded-[2.5rem] flex flex-col relative group overflow-hidden shadow-2xl min-h-[360px]">
+                        <div className="absolute -right-10 -top-10 text-indigo-500/5 rotate-[-15deg] group-hover:scale-110 transition-transform"><Share2 size={240} /></div>
+                        
+                        <div className="flex items-center justify-between mb-8">
+                           <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shadow-lg"><Users2 className="text-indigo-400" /></div>
+                           <div className="bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter">Project Portals</div>
+                        </div>
+
+                        <h3 className="text-3xl font-playfair font-black text-white mb-2 leading-none uppercase tracking-tight">Project Exclusive</h3>
+                        <p className="text-indigo-400 text-[10px] font-black uppercase tracking-[0.2em] mb-8">Community Conquests</p>
+
+                        <div className="space-y-5 flex-1">
+                           <div className="flex gap-4">
+                              <div className="w-8 h-8 rounded-lg bg-slate-950 border border-white/5 flex items-center justify-center shrink-0"><ShieldEllipsis size={16} className="text-indigo-400" /></div>
+                              <p className="text-xs text-slate-400 leading-relaxed font-light">Launch <span className="text-white font-bold">self-funded tournaments</span> where your community earns <span className="text-indigo-400 font-bold uppercase tracking-tighter">Native Tokens</span> or SOMI.</p>
+                           </div>
+                           <div className="flex gap-4">
+                              <div className="w-8 h-8 rounded-lg bg-slate-950 border border-white/5 flex items-center justify-center shrink-0"><Share2 size={16} className="text-indigo-400" /></div>
+                              <p className="text-xs text-slate-400 leading-relaxed font-light">Set <span className="text-white font-bold">Social Quests</span> (Like/Follow/RT) to gate entry. Choose between <span className="text-white font-bold">Public Sieges</span> or <span className="text-white font-bold">Private Skirmishes</span>.</p>
+                           </div>
+                        </div>
+
+                        <button className="w-full mt-10 bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-500 transition-all hover:scale-105 active:scale-95 z-10">
+                           Launch Partnership
+                        </button>
+                    </div>
+                  </div>
+
+                  {/* Zone 4: Multiplayer (The World) */}
                   <div className="space-y-6">
                      <div className="text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black flex items-center gap-2 px-2"><Globe size={14} /> The World</div>
                      
-                     <div className="bg-slate-900/40 p-10 rounded-[2.5rem] border border-blue-500/10 flex flex-col items-center justify-center text-center relative overflow-hidden h-full shadow-inner">
+                     <div className="bg-slate-900/40 p-10 rounded-[2.5rem] border border-blue-500/10 flex flex-col items-center justify-center text-center relative overflow-hidden h-full min-h-[360px] shadow-inner">
                         <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none"></div>
                         <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mb-6 shadow-xl relative z-10">
                            <Clock className="w-10 h-10 text-blue-400 animate-pulse" />
@@ -255,16 +284,13 @@ export default function App() {
                               <span className="text-[10px] font-black uppercase">Create</span>
                            </div>
                            <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-white/5">
-                              <Hash size={14} className="text-blue-400" />
-                              <span className="text-[10px] font-black uppercase">Join</span>
-                           </div>
-                           <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-white/5">
                               <PlayCircle size={14} className="text-blue-400" />
                               <span className="text-[10px] font-black uppercase">Quick</span>
                            </div>
                         </div>
                      </div>
                   </div>
+
                </div>
              ) : (
                <div className="bg-slate-900/60 p-12 rounded-[3rem] text-center space-y-8 shadow-2xl border border-white/5 relative overflow-hidden">
