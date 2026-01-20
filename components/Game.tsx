@@ -19,7 +19,6 @@ import {
   Crown,
   Users,
   ArrowRight,
-  // Fix: Added missing Layers icon import
   Layers
 } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
@@ -81,8 +80,8 @@ export const Game: React.FC<{
       if (isHuman) {
         pName = i === 0 ? userProfile.name : `Ruler ${i + 1}`;
       } else {
-        // Label opponents explicitly to match "2 players = 1 opponent" logic
-        pName = `Opponent ${i}`;
+        // Labeling opponents explicitly as requested: 1 opponent, 2 opponents, etc.
+        pName = `Opponent ${i}`; 
       }
 
       initialPlayers.push({
@@ -109,6 +108,9 @@ export const Game: React.FC<{
     };
   });
 
+  // Fix: Define currentPlayer at the component level so it is accessible in the JSX and child handlers.
+  const currentPlayer = game.players[game.turnIndex];
+
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -122,21 +124,20 @@ export const Game: React.FC<{
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
-    // Specials always legal
+    // Power Cards: 2 and 10 are always legal
     if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
-    // Constraint 7
-    if (constraint === 'LOWER_THAN_7') return card.value <= 7;
-    // Play 7 is always legal (as long as it beats top, but 7 resets to "lower than 7" next turn)
-    if (card.rank === Rank.Seven) {
-       if (currentPile.length === 0) return true;
-       const top = currentPile[currentPile.length - 1];
-       if (top.rank === Rank.Two) return true;
-       return 7 >= top.value; // Corrected: 7 must still beat top if top isn't 2
+    
+    if (constraint === 'LOWER_THAN_7') {
+      return card.value <= 7;
     }
-    // Standard high card
+    
     if (currentPile.length === 0) return true;
     const topCard = currentPile[currentPile.length - 1];
+    
+    // 2 on top resets the pile value conceptually to 0
     if (topCard.rank === Rank.Two) return true;
+    
+    // 7 is legal if it matches or beats the top card
     return card.value >= topCard.value;
   };
 
@@ -152,14 +153,20 @@ export const Game: React.FC<{
 
       if (cardsToPlay.length === 0) return prev;
       
-      if (!isLegalMove(cardsToPlay[0], prev.pile, prev.activeConstraint)) {
+      const cardToTest = cardsToPlay[0];
+      const isLegal = isLegalMove(cardToTest, prev.pile, prev.activeConstraint);
+
+      if (!isLegal) {
         if (source === 'HIDDEN') {
+          // Failed Blind Siege
           audioService.playError();
           const nextPlayers = [...prev.players];
           const p = { ...nextPlayers[pIdx] };
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
-          p.hand = [...p.hand, ...cardsToPlay, ...prev.pile];
+          // Player takes their failed card + the entire pile
+          p.hand = [...p.hand, cardToTest, ...prev.pile];
           nextPlayers[pIdx] = p;
+          
           return {
             ...prev,
             players: nextPlayers,
@@ -168,28 +175,33 @@ export const Game: React.FC<{
             activeConstraint: 'NONE',
             turnIndex: (prev.turnIndex + 1) % prev.players.length,
             actionCount: prev.actionCount + 1,
-            logs: [...prev.logs.slice(-10), `${player.name} failed Blind Siege! 🚫`]
+            logs: [...prev.logs.slice(-10), `${player.name} failed Blind Siege: ${cardToTest.rank}${cardToTest.suit}! 🚫`]
           };
         }
         audioService.playError();
         return prev;
       }
 
+      // Valid Play
       const rank = cardsToPlay[0].rank;
       const newRots = cardsToPlay.map(() => Math.random() * 40 - 20);
       let nextIdx = (prev.turnIndex + 1) % prev.players.length;
       let nextConstraint: 'NONE' | 'LOWER_THAN_7' = 'NONE';
       let nextPile = [...prev.pile, ...cardsToPlay];
+      let nextPileRots = [...prev.pileRotations, ...newRots];
       let newLog = `${player.name} played ${cardsToPlay.length > 1 ? cardsToPlay.length + 'x ' : ''}${rank}.`;
 
       if (rank === Rank.Ten) {
         audioService.playBurn();
         nextPile = [];
-        nextIdx = (prev.turnIndex + 1) % prev.players.length;
+        nextPileRots = [];
+        nextConstraint = 'NONE';
+        nextIdx = (prev.turnIndex + 1) % prev.players.length; 
         newLog = `${player.name} BURNED the pile! 🔥`;
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        nextIdx = pIdx;
+        nextIdx = pIdx; // Plays again
+        nextConstraint = 'NONE';
         newLog = `${player.name} reset with 2. Go again! 🔄`;
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
@@ -207,6 +219,7 @@ export const Game: React.FC<{
       else if (source === 'FACEUP') p.faceUpCards = p.faceUpCards.filter(c => !cardIds.includes(c.id));
       else if (source === 'HIDDEN') p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
 
+      // Draw cards if deck exists
       let nextDeck = [...prev.deck];
       const needed = 3 - p.hand.length;
       if (needed > 0 && nextDeck.length > 0) {
@@ -214,16 +227,17 @@ export const Game: React.FC<{
         p.hand = [...p.hand, ...drawn];
       }
 
-      // Check if hand empty after draw to pull face-up
+      // If hand is empty and deck is empty, check if they can pick up face up
       if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
         p.hand = [...p.faceUpCards];
         p.faceUpCards = [];
-        newLog += " (Pulled Stronghold cards!)";
+        newLog += " (Picked up Stronghold!)";
       }
 
       nextPlayers[pIdx] = p;
       let finalPhase = prev.phase;
       let winner = prev.winner;
+      
       if (p.hand.length === 0 && p.faceUpCards.length === 0 && p.hiddenCards.length === 0) {
         winner = p.name;
         finalPhase = 'GAME_OVER';
@@ -235,7 +249,7 @@ export const Game: React.FC<{
         players: nextPlayers,
         deck: nextDeck,
         pile: nextPile,
-        pileRotations: [...prev.pileRotations, ...newRots],
+        pileRotations: nextPileRots,
         turnIndex: nextIdx,
         activeConstraint: nextConstraint,
         phase: finalPhase,
@@ -282,26 +296,27 @@ export const Game: React.FC<{
       p.hasSelectedSetup = true;
       nextPlayers[pIdx] = p;
 
+      // In VS_BOT mode, other players (bots) setup automatically
       if (mode === 'VS_BOT') {
         for (let i = 1; i < nextPlayers.length; i++) {
           if (nextPlayers[i].isHuman) continue;
           const b = { ...nextPlayers[i] };
-          // Bots choose 3 highest cards for Stronghold
-          const sorted = [...b.hand].sort((x, y) => y.value - x.value);
-          b.faceUpCards = sorted.slice(0, 3);
-          b.hand = sorted.slice(3);
+          // Strategic Setup: Bots choose their 3 highest cards for the face-up Stronghold
+          const sortedHand = [...b.hand].sort((x, y) => y.value - x.value);
+          b.faceUpCards = sortedHand.slice(0, 3);
+          b.hand = sortedHand.slice(3);
           b.hasSelectedSetup = true;
           nextPlayers[i] = b;
         }
       }
 
-      const ready = nextPlayers.every(x => x.hasSelectedSetup);
+      const allReady = nextPlayers.every(x => x.hasSelectedSetup);
       return {
         ...prev,
         players: nextPlayers,
-        phase: ready ? 'PLAYING' : 'SETUP',
-        turnIndex: ready ? 0 : (pIdx + 1) % nextPlayers.length,
-        logs: ready ? ["Battle Commenced!"] : prev.logs,
+        phase: allReady ? 'PLAYING' : 'SETUP',
+        turnIndex: allReady ? 0 : (pIdx + 1) % nextPlayers.length,
+        logs: allReady ? ["The Battle for the Throne Begins!"] : prev.logs,
         actionCount: prev.actionCount + 1
       };
     });
@@ -310,7 +325,7 @@ export const Game: React.FC<{
   };
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
-    const currentPlayer = game.players[game.turnIndex];
+    // Fix: Re-use the top-level currentPlayer variable.
     if (!currentPlayer?.isHuman) return;
 
     if (game.phase === 'SETUP') {
@@ -345,64 +360,77 @@ export const Game: React.FC<{
     }
   };
 
-  // Strategic Bot Logic
+  // Improved Bot Strategic Logic
   useEffect(() => {
-    const isBotTurn = game.phase === 'PLAYING' && !game.players[game.turnIndex]?.isHuman && !game.winner;
+    const bot = game.players[game.turnIndex];
+    const isBotTurn = game.phase === 'PLAYING' && bot && !bot.isHuman && !game.winner;
+    
     if (!isBotTurn || botThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
 
     botThinkingRef.current = true;
     lastProcessedActionRef.current = game.actionCount;
-    const thinkingTime = 1000 + Math.random() * 1000;
+    
+    // Bots think based on card count (shorter turns for fewer cards)
+    const thinkingTime = 1200 + Math.random() * 800;
 
     const timer = setTimeout(() => {
-      const bot = game.players[game.turnIndex];
-      if (!bot) {
+      const currentBot = game.players[game.turnIndex];
+      if (!currentBot) {
         botThinkingRef.current = false;
         return;
       }
 
-      let source: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
-      let pool = bot.hand;
-      if (bot.hand.length === 0) {
-        if (bot.faceUpCards.length > 0) { source = 'FACEUP'; pool = bot.faceUpCards; }
-        else if (bot.hiddenCards.length > 0) { source = 'HIDDEN'; pool = [bot.hiddenCards[0]]; }
+      let sourcePool: 'HAND' | 'FACEUP' | 'HIDDEN' = 'HAND';
+      let cards = currentBot.hand;
+
+      if (currentBot.hand.length === 0) {
+        if (currentBot.faceUpCards.length > 0) {
+          sourcePool = 'FACEUP';
+          cards = currentBot.faceUpCards;
+        } else if (currentBot.hiddenCards.length > 0) {
+          sourcePool = 'HIDDEN';
+          cards = [currentBot.hiddenCards[0]];
+        }
       }
 
-      // 1. Identify all legal moves
-      const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
+      // Strategic Logic:
+      // 1. Filter legal cards
+      const legalCards = cards.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
 
-      if (legal.length > 0) {
-        // Group by rank
+      if (legalCards.length > 0) {
+        // 2. Group legal cards by rank to find sets
         const rankGroups: Record<string, Card[]> = {};
-        legal.forEach(c => {
+        legalCards.forEach(c => {
           if (!rankGroups[c.rank]) rankGroups[c.rank] = [];
           rankGroups[c.rank].push(c);
         });
 
         const ranks = Object.keys(rankGroups).sort((a, b) => getCardValue(a as Rank) - getCardValue(b as Rank));
 
-        // Strategy:
-        // A. If we have a 10 and pile is big (> 3 cards), use it!
-        if (rankGroups[Rank.Ten] && game.pile.length >= 3) {
-          playCards([rankGroups[Rank.Ten][0].id], source);
+        // 3. Selection Strategy:
+        let chosenRank = ranks[0]; // Default: lowest legal rank
+
+        // - Don't use Power Cards (2, 10, Ace) if we have other options and pile is small
+        if (ranks.length > 1 && (chosenRank === Rank.Two || chosenRank === Rank.Ten)) {
+           // Skip specials if possible to save them for tough situations
+           const nonSpecials = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten && r !== Rank.Ace);
+           if (nonSpecials.length > 0) chosenRank = nonSpecials[0];
         }
-        // B. If pile is empty, play lowest non-special cards
-        else if (game.pile.length === 0) {
-          const nonSpecials = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten && r !== Rank.Seven && r !== Rank.Ace);
-          const bestRank = nonSpecials.length > 0 ? nonSpecials[0] : ranks[0];
-          playCards(rankGroups[bestRank].map(c => c.id), source);
+        
+        // - If we have a 10 and the pile is massive (> 5 cards), BURN IT!
+        if (rankGroups[Rank.Ten] && game.pile.length >= 5) {
+          chosenRank = Rank.Ten;
         }
-        // C. Use 7 if we can and next player has few cards
-        else if (rankGroups[Rank.Seven]) {
-           playCards(rankGroups[Rank.Seven].map(c => c.id), source);
+
+        // - If pile is empty, play lowest cards
+        if (game.pile.length === 0) {
+           const nonSpecials = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten && r !== Rank.Seven && r !== Rank.Ace);
+           if (nonSpecials.length > 0) chosenRank = nonSpecials[0];
         }
-        // D. Play the lowest legal card that isn't a 2 or 10 (save those for emergencies)
-        else {
-          const regularRanks = ranks.filter(r => r !== Rank.Two && r !== Rank.Ten);
-          const bestRank = regularRanks.length > 0 ? regularRanks[0] : ranks[0];
-          playCards(rankGroups[bestRank].map(c => c.id), source);
-        }
+
+        playCards(rankGroups[chosenRank].map(c => c.id), sourcePool);
       } else {
+        // No legal move
         pickUpPile();
       }
       botThinkingRef.current = false;
@@ -413,8 +441,6 @@ export const Game: React.FC<{
       botThinkingRef.current = false;
     };
   }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
-
-  const currentPlayer = game.players[game.turnIndex];
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
@@ -428,7 +454,7 @@ export const Game: React.FC<{
         </div>
       </header>
 
-      {/* Opponents Hub */}
+      {/* Rulers Hub */}
       <div className="h-14 shrink-0 flex items-center justify-center gap-6 bg-slate-950/40 border-b border-white/5 overflow-x-auto no-scrollbar px-4">
         {game.players.map(p => (
           <div key={p.id} className={`flex items-center gap-3 transition-all duration-300 ${game.turnIndex === p.id ? 'opacity-100 scale-105' : 'opacity-40'}`}>
@@ -454,7 +480,6 @@ export const Game: React.FC<{
           </span>
         </div>
 
-        {/* The Battleground Pile */}
         <div className="flex-1 w-full flex items-center justify-center relative min-h-0">
           <div className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center">
              {game.pile.length === 0 ? (
@@ -475,7 +500,6 @@ export const Game: React.FC<{
           </div>
         </div>
 
-        {/* Controls and Strongholds */}
         <div className="w-full shrink-0 flex flex-col items-center gap-4 pb-4">
           {selectedCardIds.length > 0 && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
