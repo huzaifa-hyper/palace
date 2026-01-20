@@ -125,14 +125,12 @@ function checkHandState(player, room) {
 // --- API Endpoints ---
 app.get('/health', (req, res) => res.send('Palace Rulers HTTP Server OK'));
 
-// Create Room Endpoint
 app.post('/api/create', (req, res) => {
     const { maxPlayers = 2, playerName } = req.body;
     const roomId = generateRoomCode();
     const room = createInitialState(maxPlayers, false);
     rooms.set(roomId, room);
     
-    // Automatically join the creator
     const playerToken = Math.random().toString(36).substring(2);
     const player = {
         id: 0,
@@ -144,12 +142,11 @@ app.post('/api/create', (req, res) => {
         hasSelectedSetup: false
     };
     room.players.push(player);
-    room.logs.push(`${player.name} created the room. Waiting for ${maxPlayers - 1} more...`);
+    room.logs.push(`${player.name} created the room. Waiting for rulers...`);
     
     res.json({ success: true, roomId, playerToken, playerId: 0 });
 });
 
-// Join Room Endpoint
 app.post('/api/join', (req, res) => {
     const { roomId, playerName } = req.body;
     const sanitizedId = roomId.toUpperCase();
@@ -182,20 +179,18 @@ app.post('/api/join', (req, res) => {
             p.hand = room.deck.splice(0, 7);
         });
         room.phase = 'SETUP';
-        room.logs.push("Legions assembled. Setup your Strongholds!");
+        room.logs.push("Battlegrounds formed. Prepare your Strongholds!");
     } else {
-        room.logs.push(`${newPlayer.name} joined. ${room.maxPlayers - room.players.length} spots remaining.`);
+        room.logs.push(`${newPlayer.name} joined the lobby.`);
     }
 
     broadcastState(sanitizedId);
     res.json({ success: true, roomId: sanitizedId, playerToken, playerId });
 });
 
-// Quick Match Endpoint
 app.post('/api/quick-match', (req, res) => {
     const { playerName } = req.body;
     
-    // Find first available quickmatch lobby
     let targetRoomId = null;
     for (const [id, room] of rooms.entries()) {
         if (room.isQuickMatch && room.phase === 'LOBBY' && room.players.length < room.maxPlayers) {
@@ -205,10 +200,8 @@ app.post('/api/quick-match', (req, res) => {
     }
 
     if (targetRoomId) {
-        // Mock a join request
-        return res.redirect(307, `/api/join?roomId=${targetRoomId}`);
+        res.json({ success: true, roomId: targetRoomId, isJoin: true });
     } else {
-        // Create a new 2-player quickmatch room
         const roomId = generateRoomCode();
         const room = createInitialState(2, true);
         rooms.set(roomId, room);
@@ -224,9 +217,9 @@ app.post('/api/quick-match', (req, res) => {
             hasSelectedSetup: false
         };
         room.players.push(player);
-        room.logs.push("Searching for an opponent...");
+        room.logs.push("Searching for a worthy opponent...");
         
-        res.json({ success: true, roomId, playerToken, playerId: 0 });
+        res.json({ success: true, roomId, playerToken, playerId: 0, isJoin: false });
     }
 });
 
@@ -278,16 +271,14 @@ app.post('/api/action', (req, res) => {
         if (room.players.every(p => p.hasSelectedSetup)) {
             room.phase = 'PLAYING';
             room.turnIndex = 0;
-            room.logs.push("All Rulers Ready. The Battle Begins!");
+            room.logs.push("The Siege has begun!");
         }
     } 
     else if (action === 'PICK_UP') {
         if (room.phase !== 'PLAYING' || room.players[room.turnIndex].id !== player.id) return res.status(400).send();
         if (room.pile.length > 0) {
-            room.logs.push(`${player.name} picks up the pile.`);
+            room.logs.push(`${player.name} inherits the pile.`);
             player.hand.push(...room.pile);
-        } else {
-            room.logs.push(`${player.name} passes.`);
         }
         room.pile = [];
         room.pileRotations = [];
@@ -301,25 +292,15 @@ app.post('/api/action', (req, res) => {
         const topCard = room.pile.length > 0 ? room.pile[room.pile.length - 1] : null;
         
         let isValid = false;
-        const isTwo = cardProto.rank === Rank.Two;
-        const isTen = cardProto.rank === Rank.Ten;
-        const isSeven = cardProto.rank === Rank.Seven;
-
-        if (isTwo || isTen) {
-            isValid = true;
-        } else if (room.activeConstraint === 'LOWER_THAN_7') {
-            isValid = (cardProto.value <= 7);
-        } else if (isSeven) {
-            isValid = true;
-        } else if (!topCard || topCard.rank === Rank.Two) {
-            isValid = true;
-        } else {
-            isValid = (cardProto.value >= topCard.value);
-        }
+        if (cardProto.rank === Rank.Two || cardProto.rank === Rank.Ten) isValid = true;
+        else if (room.activeConstraint === 'LOWER_THAN_7') isValid = (cardProto.value <= 7);
+        else if (cardProto.rank === Rank.Seven) isValid = true;
+        else if (!topCard || topCard.rank === Rank.Two) isValid = true;
+        else isValid = (cardProto.value >= topCard.value);
 
         if (!isValid) {
             if (source === 'HIDDEN') {
-                room.logs.push(`${player.name} flips ${cardProto.rank}${cardProto.suit} - FAILED!`);
+                room.logs.push(`${player.name} failed Blind Siege!`);
                 player.hiddenCards = player.hiddenCards.filter(c => c.id !== cardProto.id);
                 player.hand.push(cardProto, ...room.pile);
                 room.pile = [];
@@ -329,7 +310,7 @@ app.post('/api/action', (req, res) => {
                 broadcastState(roomId);
                 return res.json({ success: true });
             }
-            return res.status(400).json({ message: 'Invalid Move' });
+            return res.status(400).json({ message: 'Illegal Move' });
         }
 
         const cardIds = cards.map(c => c.id);
@@ -339,18 +320,16 @@ app.post('/api/action', (req, res) => {
 
         cards.forEach(() => room.pileRotations.push(Math.random() * 30 - 15));
 
-        if (isTen) {
-            room.logs.push(`${player.name} BURNED the pile! 🔥 Turn passes.`);
+        if (cardProto.rank === Rank.Ten) {
+            room.logs.push(`${player.name} BURNED the pile!`);
             room.pile = [];
             room.pileRotations = [];
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);
             checkHandState(player, room);
-            if (!checkWinCondition(player, room)) {
-                advanceTurn(room);
-            }
-        } else if (isTwo) {
-            room.logs.push(`${player.name} resets with 2 and goes again!`);
+            if (!checkWinCondition(player, room)) advanceTurn(room);
+        } else if (cardProto.rank === Rank.Two) {
+            room.logs.push(`${player.name} reset the flow.`);
             room.pile.push(...cards);
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);
@@ -358,7 +337,7 @@ app.post('/api/action', (req, res) => {
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
             room.mustPlayAgain = true;
         } else if (cardProto.rank === Rank.Ace) {
-            room.logs.push(`${player.name} plays The Sovereign (A). Turn passes. 👑`);
+            room.logs.push(`${player.name} played The Sovereign.`);
             room.pile.push(...cards);
             room.activeConstraint = 'NONE';
             drawCards(player, room.deck);
@@ -366,10 +345,9 @@ app.post('/api/action', (req, res) => {
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
             advanceTurn(room);
         } else {
-            room.logs.push(`${player.name} plays ${cards.length}x ${cardProto.rank}.`);
+            room.logs.push(`${player.name} played ${cards.length}x ${cardProto.rank}.`);
             room.pile.push(...cards);
-            room.activeConstraint = isSeven ? 'LOWER_THAN_7' : 'NONE';
-            if (isSeven) room.logs.push("📉 Next Ruler must play ≤ 7!");
+            room.activeConstraint = cardProto.rank === Rank.Seven ? 'LOWER_THAN_7' : 'NONE';
             drawCards(player, room.deck);
             checkHandState(player, room);
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
