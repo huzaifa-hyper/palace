@@ -18,17 +18,21 @@ import {
   Users,
   Zap,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Hash,
+  PlayCircle
 } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
 import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
 import { RulesSheet } from './components/RulesSheet';
-import { UserProfile, GameMode } from './types';
+import { UserProfile, GameMode, GameStateSnapshot } from './types';
 import { SOMNIA_CHAIN_ID, web3Service } from './services/web3Service';
 import { p2pService } from './services/p2pService';
 import { useMinimumBalance, MIN_STT_REQUIRED } from './hooks/useMinimumBalance';
 import { useWallet } from './hooks/useWallet';
+
+const SIGNALING_SERVER = "http://localhost:8080"; // Default locally, usually injected in prod
 
 export default function App() {
   const [hasMounted, setHasMounted] = useState(false);
@@ -37,8 +41,10 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<{ mode: GameMode; playerCount: number } | null>(null);
   const [tempName, setTempName] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(true);
-  const [offlineSetupMode, setOfflineSetupMode] = useState<GameMode | null>(null);
-  const [protocolError, setProtocolError] = useState<string | null>(null);
+  const [setupStep, setSetupStep] = useState<'IDLE' | 'CREATE_SELECT' | 'JOIN_INPUT' | 'WAITING'>('IDLE');
+  const [joinCode, setJoinCode] = useState('');
+  const [roomInfo, setRoomInfo] = useState<{ code: string; current: number; max: number } | null>(null);
+  const [multiplayerState, setMultiplayerState] = useState<GameStateSnapshot | null>(null);
 
   const { address, isConnected, chainId, connect, disconnect, switchChain, isConnecting } = useWallet();
   const isMismatched = isConnected && chainId !== SOMNIA_CHAIN_ID;
@@ -52,7 +58,7 @@ export default function App() {
         window.location.protocol !== 'https:' && 
         window.location.hostname !== 'localhost' && 
         window.location.hostname !== '127.0.0.1') {
-      setProtocolError("Wallet connection requires a secure context (HTTPS).");
+      // In prod, this should be handled by your domain config
     }
   }, []);
 
@@ -65,20 +71,71 @@ export default function App() {
   }, []);
 
   const exitGame = useCallback(() => {
+    p2pService.destroy();
     setGameConfig(null);
+    setSetupStep('IDLE');
+    setMultiplayerState(null);
     setActiveTab('lobby');
   }, []);
 
   const startLocalGame = useCallback((mode: GameMode, playerCount: number) => {
-    // STRICT GUARD: Must be connected and eligible (1.0 STT+)
-    if (!isConnected || !isEligible) {
-      setActiveTab('lobby');
-      return;
-    }
+    if (!isConnected || !isEligible) return;
     p2pService.destroy(); 
     setGameConfig({ mode, playerCount });
-    setOfflineSetupMode(null);
   }, [isConnected, isEligible]);
+
+  const handleCreateRoom = async (count: number) => {
+    if (!userProfile) return;
+    try {
+      const data = await p2pService.createRoom(SIGNALING_SERVER, userProfile.name, count);
+      setRoomInfo({ code: data.roomId, current: 1, max: count });
+      setSetupStep('WAITING');
+      setupP2PListeners();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleJoinRoom = async () => {
+    if (!userProfile || !joinCode) return;
+    try {
+      const data = await p2pService.joinRoom(SIGNALING_SERVER, joinCode, userProfile.name);
+      setRoomInfo({ code: data.roomId, current: 0, max: 0 }); // Server will update this via state
+      setSetupStep('WAITING');
+      setupP2PListeners();
+    } catch (e) {
+      alert("Room not found or full");
+    }
+  };
+
+  const handleQuickMatch = async () => {
+    if (!userProfile) return;
+    try {
+      const data = await p2pService.quickMatch(SIGNALING_SERVER, userProfile.name);
+      setRoomInfo({ code: data.roomId, current: 1, max: 2 });
+      setSetupStep('WAITING');
+      setupP2PListeners();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const setupP2PListeners = () => {
+    p2pService.onGameState((state) => {
+      setMultiplayerState(state);
+      if (roomInfo) {
+          setRoomInfo(prev => prev ? { ...prev, current: state.players.length, max: state.maxPlayers } : null);
+      }
+      if (state.phase !== 'LOBBY' && !gameConfig) {
+          setGameConfig({ mode: 'ONLINE_HOST', playerCount: state.maxPlayers }); // Mode acts as flag
+      }
+    });
+    p2pService.onConnectionStatus((status) => {
+      if (status === 'CONNECTED' && !gameConfig) {
+        // Trigger game start handled by state phase check above
+      }
+    });
+  };
 
   if (!hasMounted) return null;
 
@@ -95,19 +152,6 @@ export default function App() {
     setIsProfileModalOpen(false);
   };
 
-  if (protocolError) {
-    return (
-      <div className="fixed inset-0 bg-slate-950 flex items-center justify-center p-6 z-[200] bg-felt">
-        <div className="bg-red-900/20 border border-red-500/50 p-8 rounded-3xl max-w-md text-center backdrop-blur-xl">
-          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-2">Security Notice</h2>
-          <p className="text-red-200">{protocolError}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Strict game render guard
   if (gameConfig && userProfile && isConnected && isEligible) {
     return (
       <Game 
@@ -186,65 +230,95 @@ export default function App() {
              )}
 
              {isConnected && isEligible ? (
-               <div className="grid md:grid-cols-2 gap-8 animate-in zoom-in-95 duration-500">
+               <div className="grid lg:grid-cols-2 gap-8 animate-in zoom-in-95 duration-500">
                   <div className="space-y-6">
                      <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Smartphone className="w-4 h-4" /> Combat Training</div>
-                     <div className="grid gap-6">
-                       <div className="relative group">
-                         {offlineSetupMode === 'VS_BOT' ? (
-                           <div className="bg-slate-900 border-2 border-emerald-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(16,185,129,0.1)]">
-                              <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-emerald-400">Select Opponents</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
-                              <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('VS_BOT', num)} className="bg-slate-800 hover:bg-emerald-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
-                           </div>
-                         ) : (
-                           <button 
-                            onClick={() => setOfflineSetupMode('VS_BOT')} 
-                            className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
-                           >
-                              <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-32 h-32 text-white" /></div>
-                              <div className="relative z-10">
-                                 <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20"><Bot className="w-7 h-7 text-emerald-400" /></div>
-                                 <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">VS Palace AI</h3>
-                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Train your tactical maneuvers against the Kingdom's finest automated strategists.</p>
-                              </div>
-                           </button>
-                         )}
-                       </div>
-
-                       <div className="relative group">
-                         {offlineSetupMode === 'PASS_AND_PLAY' ? (
-                           <div className="bg-slate-900 border-2 border-purple-500/50 p-8 rounded-[2.5rem] animate-in zoom-in-95 duration-300 backdrop-blur-3xl shadow-[0_0_50px_rgba(168,85,247,0.1)]">
-                              <div className="flex justify-between items-center mb-8"><h3 className="font-playfair font-black text-2xl text-purple-400">Total Rulers</h3><button onClick={() => setOfflineSetupMode(null)} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button></div>
-                              <div className="grid grid-cols-3 gap-6">{[2, 3, 4].map(num => (<button key={num} onClick={() => startLocalGame('PASS_AND_PLAY', num)} className="bg-slate-800 hover:bg-purple-600 text-white py-6 rounded-2xl font-black text-lg transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/5">{num}</button>))}</div>
-                           </div>
-                         ) : (
-                           <button 
-                            onClick={() => setOfflineSetupMode('PASS_AND_PLAY')} 
-                            className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden"
-                           >
-                              <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-32 h-32 text-white" /></div>
-                              <div className="relative z-10">
-                                 <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20"><Smartphone className="w-7 h-7 text-purple-400" /></div>
-                                 <h3 className="text-3xl font-bold text-white mb-2 font-playfair tracking-tight">Local Skirmish</h3>
-                                 <p className="text-slate-500 text-sm leading-relaxed max-w-[85%] font-light">Settle royal disputes face-to-face on a single device.</p>
-                              </div>
-                           </button>
-                         )}
-                       </div>
+                     <div className="grid sm:grid-cols-2 gap-6">
+                       <button onClick={() => startLocalGame('VS_BOT', 2)} className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Bot className="w-24 h-24 text-white" /></div>
+                          <div className="relative z-10">
+                             <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-4 border border-emerald-500/20"><Bot className="w-6 h-6 text-emerald-400" /></div>
+                             <h3 className="text-xl font-bold text-white mb-1 font-playfair tracking-tight">AI Duel</h3>
+                             <p className="text-slate-500 text-[10px] leading-relaxed font-light">Practice against Palace AI.</p>
+                          </div>
+                       </button>
+                       <button onClick={() => startLocalGame('PASS_AND_PLAY', 2)} className="w-full group bg-slate-900/60 hover:bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] text-left transition-all hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="w-24 h-24 text-white" /></div>
+                          <div className="relative z-10">
+                             <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-4 border border-purple-500/20"><Smartphone className="w-6 h-6 text-purple-400" /></div>
+                             <h3 className="text-xl font-bold text-white mb-1 font-playfair tracking-tight">Local Pass</h3>
+                             <p className="text-slate-500 text-[10px] leading-relaxed font-light">Hand-held local combat.</p>
+                          </div>
+                       </button>
                      </div>
                   </div>
 
                   <div className="space-y-6 h-full flex flex-col">
                      <div className="flex items-center gap-2 text-slate-600 uppercase tracking-[0.4em] text-[10px] font-black"><Globe className="w-4 h-4" /> Global Sovereignty</div>
-                     <div className="flex-1 bg-slate-900/40 p-10 rounded-[2.5rem] border border-blue-500/10 relative overflow-hidden backdrop-blur-sm flex flex-col justify-center text-center">
-                        <div className="absolute inset-0 bg-slate-950/80 z-20 flex flex-col items-center justify-center gap-6 p-8">
-                           <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 animate-pulse"><Globe size={40} className="text-blue-400" /></div>
-                           <div className="space-y-2">
-                              <span className="bg-blue-600 text-white px-6 py-2 rounded-full text-[10px] font-black tracking-[0.3em] shadow-2xl uppercase border border-blue-400/50">Somnia Mainnet Soon</span>
-                              <p className="text-xs text-slate-400 font-light max-w-xs mx-auto">Ranked matches with STT stakes are being forged.</p>
-                           </div>
-                        </div>
-                     </div>
+                     
+                     {setupStep === 'WAITING' ? (
+                       <div className="flex-1 bg-slate-900 border-2 border-blue-500/50 p-10 rounded-[2.5rem] flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in-95 backdrop-blur-xl">
+                          <div className="w-20 h-20 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 animate-pulse"><Loader2 size={40} className="text-blue-400 animate-spin" /></div>
+                          <div className="space-y-2">
+                             <h4 className="text-2xl font-playfair font-black text-white uppercase tracking-widest">Waiting for Rulers</h4>
+                             <p className="text-xs text-slate-500 uppercase tracking-[0.2em] font-black">{roomInfo?.current} / {roomInfo?.max} Connected</p>
+                          </div>
+                          <div className="bg-slate-950 px-10 py-6 rounded-3xl border border-white/10 shadow-2xl space-y-2">
+                             <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Room Secret</p>
+                             <div className="text-4xl font-mono font-black text-blue-400 tracking-[0.3em]">{roomInfo?.code}</div>
+                          </div>
+                          <button onClick={exitGame} className="text-[10px] font-black text-rose-500 uppercase tracking-widest hover:text-rose-400 transition-colors">Abort Mission</button>
+                       </div>
+                     ) : setupStep === 'CREATE_SELECT' ? (
+                       <div className="flex-1 bg-slate-900 border border-blue-500/20 p-8 rounded-[2.5rem] animate-in slide-in-from-right-4">
+                          <div className="flex justify-between items-center mb-8">
+                             <h3 className="font-playfair font-black text-2xl text-blue-400">Assemble Legions</h3>
+                             <button onClick={() => setSetupStep('IDLE')} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button>
+                          </div>
+                          <p className="text-xs text-slate-500 mb-8 uppercase tracking-widest font-black">Choose Total Rulers</p>
+                          <div className="grid grid-cols-3 gap-6">
+                            {[2, 3, 4].map(num => (
+                              <button key={num} onClick={() => handleCreateRoom(num)} className="bg-slate-800 hover:bg-blue-600 text-white py-8 rounded-2xl font-black text-2xl transition-all shadow-xl hover:scale-105 border border-white/5">{num}</button>
+                            ))}
+                          </div>
+                       </div>
+                     ) : setupStep === 'JOIN_INPUT' ? (
+                       <div className="flex-1 bg-slate-900 border border-blue-500/20 p-8 rounded-[2.5rem] animate-in slide-in-from-right-4">
+                          <div className="flex justify-between items-center mb-8">
+                             <h3 className="font-playfair font-black text-2xl text-blue-400">Enter Secret</h3>
+                             <button onClick={() => setSetupStep('IDLE')} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button>
+                          </div>
+                          <div className="space-y-6">
+                             <input 
+                               type="text" 
+                               value={joinCode} 
+                               onChange={(e) => setJoinCode(e.target.value.toUpperCase())} 
+                               placeholder="CODE" 
+                               className="w-full bg-slate-800 border-2 border-slate-700 rounded-2xl px-4 py-6 text-center text-4xl font-mono font-black text-blue-400 tracking-[0.5em] focus:border-blue-500 outline-none"
+                               maxLength={6}
+                             />
+                             <button 
+                               onClick={handleJoinRoom}
+                               disabled={joinCode.length < 6}
+                               className="w-full bg-blue-500 hover:bg-blue-400 text-slate-950 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl disabled:opacity-50 transition-all"
+                             >Join Stronghold</button>
+                          </div>
+                       </div>
+                     ) : (
+                       <div className="flex-1 bg-slate-900/60 p-8 rounded-[2.5rem] border border-blue-500/10 relative overflow-hidden backdrop-blur-sm grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <button onClick={() => setSetupStep('CREATE_SELECT')} className="flex flex-col items-center justify-center gap-4 bg-slate-950/60 hover:bg-blue-600/10 border border-white/5 rounded-3xl p-6 transition-all group">
+                             <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform"><Zap className="text-blue-400" /></div>
+                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Create Room</span>
+                          </button>
+                          <button onClick={() => setSetupStep('JOIN_INPUT')} className="flex flex-col items-center justify-center gap-4 bg-slate-950/60 hover:bg-blue-600/10 border border-white/5 rounded-3xl p-6 transition-all group">
+                             <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform"><Hash className="text-blue-400" /></div>
+                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Join with Code</span>
+                          </button>
+                          <button onClick={handleQuickMatch} className="sm:col-span-2 flex items-center justify-center gap-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-3xl p-6 font-black uppercase tracking-[0.3em] text-xs shadow-2xl transition-all hover:scale-[1.02] active:scale-95">
+                             <PlayCircle size={20} /> Quick Match
+                          </button>
+                       </div>
+                     )}
                   </div>
                </div>
              ) : (

@@ -1,4 +1,3 @@
-
 import { GameStateSnapshot } from '../types';
 
 export class MultiplayerService {
@@ -11,54 +10,60 @@ export class MultiplayerService {
   private onStateCallback: ((state: GameStateSnapshot) => void) | null = null;
   private onConnectionStatusCallback: ((status: string) => void) | null = null;
   private onDisconnectCallback: ((reason: string) => void) | null = null;
-  private onMessageCallback: ((msg: any) => void) | null = null;
 
   public isHost: boolean = false;
-  public myPeerId: string | null = null; // Used for UI identity mapping
+  public myPeerId: string | null = null;
 
   constructor() {}
 
-  public async connect(url: string, action: 'create' | 'join', roomId: string, playerName: string): Promise<void> {
-    this.baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
-    
+  private async initializeConnection(url: string, endpoint: string, body: object) {
+    this.baseUrl = url.replace(/\/$/, '');
     if (this.onConnectionStatusCallback) this.onConnectionStatusCallback('CONNECTING_SIGNALING');
 
     try {
-        const response = await fetch(`${this.baseUrl}/api/join`, {
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId, playerName })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
             const err = await response.json();
-            throw new Error(err.message || 'Failed to join');
+            throw new Error(err.message || 'Multiplayer error');
         }
 
         const data = await response.json();
         this.roomId = data.roomId;
         this.playerToken = data.playerToken;
-        this.myPeerId = data.playerId.toString(); // Map server ID to peer ID for Game.tsx
+        this.myPeerId = data.playerId.toString();
 
-        // Start Polling
         this.startPolling();
-
+        return data;
     } catch (e: any) {
         if (this.onDisconnectCallback) this.onDisconnectCallback(e.message);
         throw e;
     }
   }
 
+  public async createRoom(url: string, playerName: string, maxPlayers: number) {
+      this.isHost = true;
+      return this.initializeConnection(url, '/api/create', { playerName, maxPlayers });
+  }
+
+  public async joinRoom(url: string, roomId: string, playerName: string) {
+      this.isHost = false;
+      return this.initializeConnection(url, '/api/join', { roomId, playerName });
+  }
+
+  public async quickMatch(url: string, playerName: string) {
+      this.isHost = false;
+      return this.initializeConnection(url, '/api/quick-match', { playerName });
+  }
+
   private startPolling() {
       if (this.pollInterval) clearInterval(this.pollInterval);
-      
-      // Initial fetch
       this.fetchState();
-
-      // Poll every 2 seconds
-      this.pollInterval = setInterval(() => {
-          this.fetchState();
-      }, 2000);
+      this.pollInterval = setInterval(() => this.fetchState(), 2000);
   }
 
   private async fetchState() {
@@ -66,14 +71,11 @@ export class MultiplayerService {
 
       try {
           const response = await fetch(`${this.baseUrl}/api/state/${this.roomId}?playerToken=${this.playerToken}`);
-          if (!response.ok) return; // Silent fail on poll
+          if (!response.ok) return;
           
           const state: GameStateSnapshot = await response.json();
 
-          // Check if game started
-          if (state.players.length === 2 && this.onConnectionStatusCallback) {
-              // Notify App.tsx that we are ready to play
-              // We check if phase is not lobby to ensure smoother transition
+          if (state.players.length === state.maxPlayers && this.onConnectionStatusCallback) {
               if (state.phase !== 'LOBBY') {
                    this.onConnectionStatusCallback('CONNECTED');
               } else {
@@ -82,13 +84,12 @@ export class MultiplayerService {
           }
 
           if (this.onStateCallback) this.onStateCallback(state);
-
       } catch (e) {
           console.error("Polling error", e);
       }
   }
 
-  private async sendAction(action: string, payload: any = {}) {
+  public async sendAction(action: string, payload: any = {}) {
       if (!this.roomId || !this.playerToken) return;
 
       try {
@@ -102,14 +103,11 @@ export class MultiplayerService {
                   payload
               })
           });
-          // Immediate poll after action for snappier UI
           this.fetchState();
       } catch (e) {
           console.error("Action failed", e);
       }
   }
-
-  // --- Game Actions ---
 
   public sendSetup(faceUpCards: any[], hand: any[]) {
     this.sendAction('SETUP_CONFIRM', { faceUpCards, hand });
@@ -123,8 +121,6 @@ export class MultiplayerService {
     this.sendAction('PICK_UP');
   }
 
-  // --- Registration Methods ---
-
   public onGameState(cb: (state: GameStateSnapshot) => void) {
     this.onStateCallback = cb;
   }
@@ -137,10 +133,6 @@ export class MultiplayerService {
     this.onDisconnectCallback = cb;
   }
 
-  public onMessage(cb: (msg: any) => void) {
-      this.onMessageCallback = cb;
-  }
-
   public destroy() {
     if (this.pollInterval) {
         clearInterval(this.pollInterval);
@@ -149,6 +141,8 @@ export class MultiplayerService {
     this.roomId = null;
     this.playerToken = null;
   }
+
+  public getRoomId() { return this.roomId; }
 }
 
 export const p2pService = new MultiplayerService();

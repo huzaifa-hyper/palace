@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const http = require('http');
 
 // --- Game Constants & Helpers ---
 const Suit = { Spades: '♠', Hearts: '♥', Diamonds: '♦', Clubs: '♣' };
@@ -54,6 +53,10 @@ function createDeck() {
   return shuffle(deck);
 }
 
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
 // --- App Setup ---
 const app = express();
 app.use(cors());
@@ -69,7 +72,7 @@ function broadcastState(roomId) {
   }
 }
 
-function createInitialState() {
+function createInitialState(maxPlayers = 2, isQuickMatch = false) {
   return {
     players: [],
     deck: [],
@@ -81,7 +84,9 @@ function createInitialState() {
     mustPlayAgain: false,
     winner: null,
     logs: [],
-    lastUpdateTimestamp: Date.now()
+    lastUpdateTimestamp: Date.now(),
+    maxPlayers,
+    isQuickMatch
   };
 }
 
@@ -120,28 +125,40 @@ function checkHandState(player, room) {
 // --- API Endpoints ---
 app.get('/health', (req, res) => res.send('Palace Rulers HTTP Server OK'));
 
+// Create Room Endpoint
+app.post('/api/create', (req, res) => {
+    const { maxPlayers = 2, playerName } = req.body;
+    const roomId = generateRoomCode();
+    const room = createInitialState(maxPlayers, false);
+    rooms.set(roomId, room);
+    
+    // Automatically join the creator
+    const playerToken = Math.random().toString(36).substring(2);
+    const player = {
+        id: 0,
+        name: playerName || "Host",
+        token: playerToken,
+        hand: [],
+        faceUpCards: [],
+        hiddenCards: [],
+        hasSelectedSetup: false
+    };
+    room.players.push(player);
+    room.logs.push(`${player.name} created the room. Waiting for ${maxPlayers - 1} more...`);
+    
+    res.json({ success: true, roomId, playerToken, playerId: 0 });
+});
+
+// Join Room Endpoint
 app.post('/api/join', (req, res) => {
     const { roomId, playerName } = req.body;
-    const sanitizedId = roomId ? roomId.toUpperCase() : 'DEFAULT';
+    const sanitizedId = roomId.toUpperCase();
     
-    let room = rooms.get(sanitizedId);
-    if (!room) {
-        room = createInitialState();
-        rooms.set(sanitizedId, room);
-    }
+    const room = rooms.get(sanitizedId);
+    if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
-    const existingPlayer = room.players.find(p => p.name === playerName);
-    if (existingPlayer) {
-        return res.json({ 
-            success: true, 
-            roomId: sanitizedId, 
-            playerToken: existingPlayer.token, 
-            playerId: existingPlayer.id 
-        });
-    }
-
-    if (room.players.length >= 2) {
-        return res.status(403).json({ success: false, message: 'Room is full' });
+    if (room.phase !== 'LOBBY' || room.players.length >= room.maxPlayers) {
+        return res.status(403).json({ success: false, message: 'Room is full or game started' });
     }
 
     const playerId = room.players.length;
@@ -158,21 +175,59 @@ app.post('/api/join', (req, res) => {
     };
     room.players.push(newPlayer);
 
-    if (room.players.length === 2) {
+    if (room.players.length === room.maxPlayers) {
         room.deck = createDeck();
         room.players.forEach(p => {
             p.hiddenCards = room.deck.splice(0, 3);
             p.hand = room.deck.splice(0, 7);
         });
         room.phase = 'SETUP';
-        room.logs.push("Both players connected. Setup your Strongholds!");
+        room.logs.push("Legions assembled. Setup your Strongholds!");
     } else {
-        room.logs.push(`${newPlayer.name} joined. Waiting for opponent...`);
+        room.logs.push(`${newPlayer.name} joined. ${room.maxPlayers - room.players.length} spots remaining.`);
     }
 
     broadcastState(sanitizedId);
-
     res.json({ success: true, roomId: sanitizedId, playerToken, playerId });
+});
+
+// Quick Match Endpoint
+app.post('/api/quick-match', (req, res) => {
+    const { playerName } = req.body;
+    
+    // Find first available quickmatch lobby
+    let targetRoomId = null;
+    for (const [id, room] of rooms.entries()) {
+        if (room.isQuickMatch && room.phase === 'LOBBY' && room.players.length < room.maxPlayers) {
+            targetRoomId = id;
+            break;
+        }
+    }
+
+    if (targetRoomId) {
+        // Mock a join request
+        return res.redirect(307, `/api/join?roomId=${targetRoomId}`);
+    } else {
+        // Create a new 2-player quickmatch room
+        const roomId = generateRoomCode();
+        const room = createInitialState(2, true);
+        rooms.set(roomId, room);
+        
+        const playerToken = Math.random().toString(36).substring(2);
+        const player = {
+            id: 0,
+            name: playerName || "QuickRuler",
+            token: playerToken,
+            hand: [],
+            faceUpCards: [],
+            hiddenCards: [],
+            hasSelectedSetup: false
+        };
+        room.players.push(player);
+        room.logs.push("Searching for an opponent...");
+        
+        res.json({ success: true, roomId, playerToken, playerId: 0 });
+    }
 });
 
 app.get('/api/state/:roomId', (req, res) => {
@@ -203,7 +258,8 @@ app.get('/api/state/:roomId', (req, res) => {
         mustPlayAgain: room.mustPlayAgain,
         winner: room.winner,
         logs: room.logs,
-        lastUpdateTimestamp: room.lastUpdateTimestamp
+        lastUpdateTimestamp: room.lastUpdateTimestamp,
+        maxPlayers: room.maxPlayers
     });
 });
 
@@ -302,7 +358,6 @@ app.post('/api/action', (req, res) => {
             if (checkWinCondition(player, room)) { broadcastState(roomId); return res.json({success:true}); }
             room.mustPlayAgain = true;
         } else if (cardProto.rank === Rank.Ace) {
-            // STRICT: Turn advances after Ace
             room.logs.push(`${player.name} plays The Sovereign (A). Turn passes. 👑`);
             room.pile.push(...cards);
             room.activeConstraint = 'NONE';
