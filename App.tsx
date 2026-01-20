@@ -1,10 +1,8 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Layers, 
-  HelpCircle, 
   BookOpen, 
   Crown, 
   Smartphone, 
@@ -33,7 +31,6 @@ import {
   ArrowRight
 } from 'lucide-react';
 import sdk from '@farcaster/frame-sdk';
-import { Arbiter } from './components/Arbiter';
 import { Game } from './components/Game';
 import { RulesSheet } from './components/RulesSheet';
 import { UserProfile, GameMode, GameStateSnapshot } from './types';
@@ -44,7 +41,7 @@ import { useWallet } from './hooks/useWallet';
 
 export default function App() {
   const [hasMounted, setHasMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'lobby' | 'rules' | 'arbiter'>('lobby');
+  const [activeTab, setActiveTab] = useState<'lobby' | 'rules'>('lobby');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [gameConfig, setGameConfig] = useState<{ mode: GameMode; playerCount: number } | null>(null);
   const [tempName, setTempName] = useState('');
@@ -117,7 +114,7 @@ export default function App() {
            <h1 className="text-3xl font-playfair font-bold text-amber-100 mb-2">Identify Yourself</h1>
            <form onSubmit={handleCreateProfile} className="space-y-6">
              <input type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your Name" className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-4 text-center text-lg text-amber-100 focus:ring-2 focus:ring-amber-500 outline-none" maxLength={12} />
-             <button type="submit" disabled={!tempName.trim()} className="w-full bg-amber-500 text-slate-900 font-bold py-4 rounded-xl shadow-lg disabled:opacity-50 uppercase tracking-widest text-xs">Enter Palace</button>
+             <button type="submit" disabled={!tempName.trim()} className="w-full bg-amber-500 text-slate-950 font-bold py-4 rounded-xl shadow-lg disabled:opacity-50 uppercase tracking-widest text-xs">Enter Palace</button>
            </form>
         </div>
       </div>
@@ -252,7 +249,7 @@ export default function App() {
                     <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border-2 border-amber-500/20 p-10 md:p-16 rounded-[3.5rem] relative overflow-hidden group shadow-2xl">
                         <div className="absolute -right-20 -bottom-20 text-amber-500/5 rotate-12 group-hover:scale-110 transition-transform pointer-events-none"><Trophy size={400} /></div>
                         
-                        <div className="flex flex-col md:flex-row gap-12 items-center">
+                        <div className="flex flex-col md:flex-row gap-12 items-center opacity-60 grayscale">
                           <div className="flex-1 space-y-8">
                             <div className="flex items-center gap-4">
                                <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 shadow-lg"><Coins className="text-amber-500" /></div>
@@ -279,11 +276,12 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="w-full md:w-80 shrink-0">
-                            <button className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 py-6 rounded-[2rem] font-black text-sm uppercase tracking-[0.2em] shadow-[0_20px_40px_rgba(245,158,11,0.2)] transition-all hover:scale-105 active:scale-95">
-                               Enter Arena
-                            </button>
-                            <p className="text-center text-[9px] text-slate-600 mt-4 uppercase tracking-widest font-black">Requires 5 STT Deposit</p>
+                          <div className="w-full md:w-80 shrink-0 text-center space-y-4">
+                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl py-8 px-4 flex flex-col items-center gap-4">
+                                <Clock className="w-10 h-10 text-amber-500 animate-pulse" />
+                                <h4 className="text-2xl font-playfair font-black text-amber-100 uppercase">Coming Soon</h4>
+                            </div>
+                            <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Competitive play is in development</p>
                           </div>
                         </div>
                     </div>
@@ -300,7 +298,7 @@ export default function App() {
                     <div className="bg-gradient-to-br from-indigo-950/20 via-slate-900 to-slate-900 border border-indigo-500/20 p-10 md:p-16 rounded-[3.5rem] relative overflow-hidden group shadow-2xl">
                         <div className="absolute -left-20 -top-20 text-indigo-500/5 rotate-[-15deg] group-hover:scale-110 transition-transform pointer-events-none"><Users2 size={400} /></div>
                         
-                        <div className="flex flex-col md:flex-row gap-12">
+                        <div className="flex flex-col md:flex-row gap-12 opacity-60 grayscale">
                           <div className="flex-1 space-y-8">
                              <div className="flex items-center gap-3">
                                 <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shadow-lg"><Users2 className="text-indigo-400" /></div>
@@ -330,30 +328,14 @@ export default function App() {
                                    </p>
                                 </div>
                              </div>
-
-                             <div className="flex flex-wrap gap-4 pt-4 border-t border-white/5">
-                                <div className="flex items-center gap-2 text-slate-500">
-                                   <Eye size={14} />
-                                   <span className="text-[9px] font-black uppercase tracking-widest">Public Sieges</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-slate-500">
-                                   <EyeOff size={14} />
-                                   <span className="text-[9px] font-black uppercase tracking-widest">Private Skirmishes</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-slate-500">
-                                   <ShieldEllipsis size={14} />
-                                   <span className="text-[9px] font-black uppercase tracking-widest">Allowlist Only</span>
-                                </div>
-                             </div>
                           </div>
 
-                          <div className="w-full md:w-80 shrink-0 flex flex-col justify-center">
-                            <button className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-6 rounded-[2rem] font-black text-sm uppercase tracking-[0.2em] shadow-[0_20px_40px_rgba(79,70,229,0.2)] transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3">
-                               Explore Portals <ExternalLink size={16} />
-                            </button>
-                            <button className="w-full mt-4 text-[10px] text-slate-500 hover:text-indigo-400 font-black uppercase tracking-widest transition-colors">
-                               Host your own
-                            </button>
+                          <div className="w-full md:w-80 shrink-0 flex flex-col justify-center text-center space-y-4">
+                            <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl py-8 px-4 flex flex-col items-center gap-4">
+                                <Clock className="w-10 h-10 text-indigo-400 animate-pulse" />
+                                <h4 className="text-2xl font-playfair font-black text-indigo-100 uppercase">Coming Soon</h4>
+                            </div>
+                            <p className="text-[9px] text-slate-600 uppercase tracking-widest font-black">Portal APIs are in early access</p>
                           </div>
                         </div>
                     </div>
@@ -413,15 +395,13 @@ export default function App() {
           </div>
         )}
         {activeTab === 'rules' && <RulesSheet />}
-        {activeTab === 'arbiter' && (<div className="max-w-3xl mx-auto pt-10"><Arbiter /></div>)}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-2xl border-t border-white/5 px-8 py-5 z-50 md:hidden">
         <div className="flex justify-around items-center max-w-md mx-auto">
           {[
             { id: 'lobby', icon: Layers, label: 'Palace' },
-            { id: 'rules', icon: BookOpen, label: 'Codex' },
-            { id: 'arbiter', icon: HelpCircle, label: 'Arbiter' }
+            { id: 'rules', icon: BookOpen, label: 'Codex' }
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center gap-2 transition-all ${activeTab === tab.id ? 'text-amber-500 scale-110' : 'text-slate-600'}`}>
               <tab.icon size={22} />
@@ -441,13 +421,13 @@ export default function App() {
             </div>
          </div>
          <div className="flex gap-16">
-            {['lobby', 'rules', 'arbiter'].map((tab) => (
+            {['lobby', 'rules'].map((tab) => (
                <button 
                   key={tab}
                   onClick={() => setActiveTab(tab as any)} 
                   className={`text-[10px] font-black uppercase tracking-[0.4em] transition-all relative py-2 ${activeTab === tab ? 'text-amber-500' : 'text-slate-600 hover:text-slate-300'}`}
                >
-                  {tab === 'lobby' ? 'The Palace' : tab === 'rules' ? 'The Codex' : 'The Arbiter'}
+                  {tab === 'lobby' ? 'The Palace' : 'The Codex'}
                   {activeTab === tab && (
                      <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-amber-500 animate-in fade-in slide-in-from-left-2"></div>
                   )}
