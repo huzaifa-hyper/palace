@@ -68,7 +68,6 @@ export const Game: React.FC<{
     
     for (let i = 0; i < actualCount; i++) {
       const isHuman = mode === 'PASS_AND_PLAY' || i === 0;
-      // Naming Logic: Player 0 is User, others are "Opponent 1", "Opponent 2", etc.
       let pName = "";
       if (isHuman && i === 0) {
         pName = userProfile.name;
@@ -107,22 +106,50 @@ export const Game: React.FC<{
   const botThinkingRef = useRef(false);
   const lastProcessedActionRef = useRef<number>(-1);
 
-  // Derive the player whose turn it is
   const currentPlayer = game.players[game.turnIndex];
   
-  // Perspective: In VS_BOT, we only see Player 0's hand. In Pass-and-Play, we see the current player.
   const perspectivePlayer = useMemo(() => {
     if (mode === 'VS_BOT') return game.players[0];
     return currentPlayer;
   }, [mode, game.players, currentPlayer]);
 
+  // Rule Effect: Automatically pickup stronghold cards when hand has 1 card left and deck is empty
+  useEffect(() => {
+    if (game.phase !== 'PLAYING' || game.deck.length > 0) return;
+
+    const playersNeedingReclaim = game.players.filter(p => 
+      p.hand.length <= 1 && p.faceUpCards.length > 0
+    );
+
+    if (playersNeedingReclaim.length > 0) {
+      setGame(prev => {
+        const nextPlayers = [...prev.players];
+        let changed = false;
+        
+        nextPlayers.forEach((p, idx) => {
+          if (p.hand.length <= 1 && p.faceUpCards.length > 0) {
+            const newP = { ...p };
+            newP.hand = [...p.hand, ...p.faceUpCards];
+            newP.faceUpCards = [];
+            nextPlayers[idx] = newP;
+            changed = true;
+          }
+        });
+
+        if (!changed) return prev;
+        return {
+          ...prev,
+          players: nextPlayers,
+          logs: [...prev.logs.slice(-5), "Stronghold Fortifications Reclaimed!"]
+        };
+      });
+    }
+  }, [game.players, game.deck.length, game.phase]);
+
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
-    // Power Cards: 2, 7, and 10 can be thrown on ANY card
     if (card.rank === Rank.Two || card.rank === Rank.Seven || card.rank === Rank.Ten) return true;
-    
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
-    
     if (currentPile.length === 0) return true;
     const topCard = currentPile[currentPile.length - 1];
     if (topCard.rank === Rank.Two) return true;
@@ -181,12 +208,12 @@ export const Game: React.FC<{
         newLog = `${player.name} BURNED the pile! 🔥`;
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        nextIdx = pIdx; // Power Play: Goes again
+        nextIdx = pIdx; 
         nextConstraint = 'NONE';
         newLog = `${player.name} reset the pile and commands another turn.`;
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
-        nextConstraint = 'LOWER_THAN_7'; // Power Play: Imposes constraint
+        nextConstraint = 'LOWER_THAN_7';
         newLog = `${player.name} used The Lowering (7). Next player must play ≤ 7!`;
       } else {
         audioService.playCardPlace();
@@ -202,13 +229,6 @@ export const Game: React.FC<{
       const needed = 3 - p.hand.length;
       if (needed > 0 && nextDeck.length > 0) {
         p.hand.push(...nextDeck.splice(0, Math.min(needed, nextDeck.length)));
-      }
-
-      // Rule Implementation: "When 1 card left in your hand you will automatically gets the 3 cards that you have selected"
-      if (p.hand.length <= 1 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
-        p.hand = [...p.hand, ...p.faceUpCards];
-        p.faceUpCards = [];
-        newLog += " (Stronghold Fortifications Reclaimed!)";
       }
 
       nextPlayers[pIdx] = p;
@@ -276,7 +296,6 @@ export const Game: React.FC<{
         for (let i = 1; i < nextPlayers.length; i++) {
           if (nextPlayers[i].isHuman) continue;
           const b = { ...nextPlayers[i] };
-          // Strategic Setup: Bots choose their 3 highest cards
           const sorted = [...b.hand].sort((x, y) => y.value - x.value);
           b.faceUpCards = sorted.slice(0, 3);
           b.hand = sorted.slice(3);
@@ -301,7 +320,7 @@ export const Game: React.FC<{
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
     if (!perspectivePlayer?.isHuman) return;
-    if (mode === 'VS_BOT' && game.turnIndex !== 0) return; // Only Player 0 can select during their turn
+    if (mode === 'VS_BOT' && game.turnIndex !== 0) return;
 
     if (game.phase === 'SETUP') {
       if (source !== 'HAND') return;
@@ -335,7 +354,6 @@ export const Game: React.FC<{
     }
   };
 
-  // Improved Tactical Bot Logic
   useEffect(() => {
     const isBotTurn = game.phase === 'PLAYING' && currentPlayer && !currentPlayer.isHuman && !game.winner;
     if (!isBotTurn || botThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
@@ -359,20 +377,14 @@ export const Game: React.FC<{
       const legalCards = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
 
       if (legalCards.length > 0) {
-        // Intelligence: Look for sets of the same rank
         const groups: Record<string, Card[]> = {};
         legalCards.forEach(c => { groups[c.rank] = groups[c.rank] || []; groups[c.rank].push(c); });
-        
-        // Sorting strategy: Play lowest cards first unless a power card is needed
         const sortedRanks = Object.keys(groups).sort((a, b) => getCardValue(a as Rank) - getCardValue(b as Rank));
-        
         let bestRank = sortedRanks[0];
         
-        // Strategic Tweak: Don't waste '10' on small piles
         if (groups[Rank.Ten] && game.pile.length >= 4) {
           bestRank = Rank.Ten;
         } else if (sortedRanks.length > 1 && [Rank.Two, Rank.Seven, Rank.Ten].includes(bestRank as Rank)) {
-          // If we have a regular card that's legal, play that instead of a power card early
           const normalRanks = sortedRanks.filter(r => ![Rank.Two, Rank.Seven, Rank.Ten].includes(r as Rank));
           if (normalRanks.length > 0) bestRank = normalRanks[0];
         }
@@ -399,7 +411,6 @@ export const Game: React.FC<{
         </div>
       </header>
 
-      {/* Rulers Hub */}
       <div className="h-14 shrink-0 flex items-center justify-center gap-6 bg-slate-950/40 border-b border-white/5 overflow-x-auto no-scrollbar px-4">
         {game.players.map(p => (
           <div key={p.id} className={`flex items-center gap-3 transition-all ${game.turnIndex === p.id ? 'opacity-100 scale-105' : 'opacity-40'}`}>
@@ -453,7 +464,6 @@ export const Game: React.FC<{
             </button>
           )}
 
-          {/* Perspective Stronghold Cards */}
           <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5">
              {[0, 1, 2].map((i) => (
                <div key={i} className="relative">
@@ -473,7 +483,6 @@ export const Game: React.FC<{
         </div>
       </main>
 
-      {/* Perspective Hand Footer - Always private to Player 0 in VS_BOT */}
       <footer className="h-56 md:h-64 bg-slate-950 border-t border-white/10 flex items-center justify-center shrink-0 relative">
         {game.phase === 'PLAYING' && game.turnIndex === perspectivePlayer?.id && perspectivePlayer.isHuman && (
            <button onClick={pickUpPile} className="absolute -top-10 left-6 bg-rose-600 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border-b-4 border-rose-800 uppercase tracking-widest z-[310] transition-all active:translate-y-0.5 active:border-b-0">
