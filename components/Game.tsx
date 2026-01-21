@@ -12,7 +12,8 @@ import {
   Zap,
   Crown,
   Users,
-  Layers
+  Layers,
+  Timer
 } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import { Rank, Suit, Card, Player, GamePhase, UserProfile, GameMode } from '../types';
@@ -103,6 +104,7 @@ export const Game: React.FC<{
 
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | 'HIDDEN' | null>(null);
+  const [timeLeft, setTimeLeft] = useState(15);
   const botThinkingRef = useRef(false);
   const lastProcessedActionRef = useRef<number>(-1);
 
@@ -120,6 +122,54 @@ export const Game: React.FC<{
            game.turnIndex === perspectivePlayer?.id &&
            game.phase === 'PLAYING';
   }, [perspectivePlayer, game.turnIndex, game.phase]);
+
+  const pickUpPile = () => {
+    setGame(prev => {
+      const nextPlayers = [...prev.players];
+      const pIdx = prev.turnIndex;
+      const p = { ...nextPlayers[pIdx] };
+      p.hand = [...p.hand, ...prev.pile];
+      nextPlayers[pIdx] = p;
+      return {
+        ...prev,
+        players: nextPlayers,
+        pile: [],
+        pileRotations: [],
+        activeConstraint: 'NONE',
+        turnIndex: (prev.turnIndex + 1) % prev.players.length,
+        actionCount: prev.actionCount + 1,
+        logs: [...prev.logs.slice(-5), `${p.name} inherited the pile.`]
+      };
+    });
+    audioService.playError();
+    setSelectedCardIds([]);
+    setSelectedSource(null);
+  };
+
+  // Turn Timer logic
+  useEffect(() => {
+    if (game.phase !== 'PLAYING' || game.winner) return;
+
+    const interval = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          // Trigger timeout action for humans
+          if (currentPlayer?.isHuman) {
+            pickUpPile();
+          }
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [game.turnIndex, game.phase, game.winner, game.actionCount, currentPlayer?.isHuman]);
+
+  // Reset timer on turn change or action
+  useEffect(() => {
+    setTimeLeft(15);
+  }, [game.turnIndex, game.actionCount]);
 
   // Rule Effect: Automatically pickup stronghold cards when hand is low and deck is empty
   useEffect(() => {
@@ -273,29 +323,6 @@ export const Game: React.FC<{
     setSelectedSource(null);
   };
 
-  const pickUpPile = () => {
-    setGame(prev => {
-      const nextPlayers = [...prev.players];
-      const pIdx = prev.turnIndex;
-      const p = { ...nextPlayers[pIdx] };
-      p.hand = [...p.hand, ...prev.pile];
-      nextPlayers[pIdx] = p;
-      return {
-        ...prev,
-        players: nextPlayers,
-        pile: [],
-        pileRotations: [],
-        activeConstraint: 'NONE',
-        turnIndex: (prev.turnIndex + 1) % prev.players.length,
-        actionCount: prev.actionCount + 1,
-        logs: [...prev.logs.slice(-5), `${p.name} inherited the pile.`]
-      };
-    });
-    audioService.playError();
-    setSelectedCardIds([]);
-    setSelectedSource(null);
-  };
-
   const confirmSetup = () => {
     if (selectedCardIds.length !== 3) return;
     setGame(prev => {
@@ -346,18 +373,14 @@ export const Game: React.FC<{
       });
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING') {
-      // In the Skirmish:
-      // 1. If it's the Blind Siege (hand & faceUp empty), only allow selecting ONE HIDDEN card.
-      // 2. Otherwise, only allow selecting matching ranks from the HAND.
-      
-      if (source === 'FACEUP') return; // FaceUp cards are automatically reclaimed to hand.
+      if (source === 'FACEUP') return;
 
       if (canPerformBlindSiege) {
         if (source !== 'HIDDEN') return;
         setSelectedCardIds(prev => {
            if (prev.includes(card.id)) { setSelectedSource(null); return []; }
            setSelectedSource('HIDDEN');
-           return [card.id]; // Only 1 hidden card at a time.
+           return [card.id];
         });
         return;
       }
@@ -461,11 +484,29 @@ export const Game: React.FC<{
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-between min-h-0 py-4 relative">
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-amber-500/30 px-8 py-2.5 rounded-full flex items-center gap-3 shadow-2xl backdrop-blur-xl z-50">
-          <Crown size={14} className="text-amber-500 animate-pulse" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">
-            {currentPlayer?.isHuman ? (canPerformBlindSiege ? "Blind Siege Authorized" : "Your Strategic Play") : `${currentPlayer?.name}'s Turn`}
-          </span>
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-50">
+          <div className="bg-slate-900/95 border border-amber-500/30 px-8 py-2.5 rounded-full flex items-center gap-3 shadow-2xl backdrop-blur-xl">
+            <Crown size={14} className="text-amber-500 animate-pulse" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">
+              {currentPlayer?.isHuman ? (canPerformBlindSiege ? "Blind Siege Authorized" : "Your Strategic Play") : `${currentPlayer?.name}'s Turn`}
+            </span>
+            {game.phase === 'PLAYING' && !game.winner && (
+              <div className="flex items-center gap-1.5 ml-4 pl-4 border-l border-white/10">
+                <Timer size={12} className={timeLeft <= 5 ? "text-rose-500 animate-pulse" : "text-amber-500/60"} />
+                <span className={`text-[10px] font-mono font-bold ${timeLeft <= 5 ? "text-rose-500" : "text-amber-500"}`}>
+                  {timeLeft}s
+                </span>
+              </div>
+            )}
+          </div>
+          {game.phase === 'PLAYING' && !game.winner && (
+            <div className="w-48 h-1 bg-slate-900 rounded-full overflow-hidden border border-white/5">
+              <div 
+                className={`h-full transition-all duration-1000 ease-linear ${timeLeft <= 5 ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.5)]" : "bg-amber-500"}`}
+                style={{ width: `${(timeLeft / 15) * 100}%` }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex-1 w-full flex items-center justify-center relative">
@@ -499,7 +540,6 @@ export const Game: React.FC<{
           <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5">
              {[0, 1, 2].map((i) => (
                <div key={i} className="relative">
-                  {/* The Blind Siege Card (Hidden) */}
                   {perspectivePlayer?.hiddenCards[i] && (
                     <div className="absolute inset-0 z-[80]">
                        <PlayingCard 
@@ -511,10 +551,8 @@ export const Game: React.FC<{
                     </div>
                   )}
                   
-                  {/* Background slot visual */}
                   <PlayingCard faceDown className="opacity-10" />
 
-                  {/* Face up cards (Automatic reclaim) */}
                   {perspectivePlayer?.faceUpCards[i] && (
                     <div className="absolute -top-3 -right-3 z-[100] shadow-2xl">
                        <PlayingCard 
