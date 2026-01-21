@@ -114,6 +114,7 @@ export const Game: React.FC<{
   }, [mode, game.players, currentPlayer]);
 
   // Rule Effect: Automatically pickup stronghold cards when hand has 1 card left and deck is empty
+  // This side effect ensures the jump happens immediately whenever the state satisfies the rule.
   useEffect(() => {
     if (game.phase !== 'PLAYING' || game.deck.length > 0) return;
 
@@ -231,6 +232,13 @@ export const Game: React.FC<{
         p.hand.push(...nextDeck.splice(0, Math.min(needed, nextDeck.length)));
       }
 
+      // Check for immediate Stronghold reclaim if deck is dry and hand is low
+      if (p.hand.length <= 1 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
+        p.hand = [...p.hand, ...p.faceUpCards];
+        p.faceUpCards = [];
+        newLog += " (Stronghold Reclaimed!)";
+      }
+
       nextPlayers[pIdx] = p;
       let finalPhase = prev.phase;
       let winner = prev.winner;
@@ -331,6 +339,10 @@ export const Game: React.FC<{
       });
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING') {
+      // Rule Implementation: Cards in the Stronghold (FACEUP) cannot be manually selected.
+      // They MUST automatically move to the hand footer to be played.
+      if (source === 'FACEUP') return;
+
       setSelectedCardIds(prev => {
         if (prev.includes(card.id)) {
           const next = prev.filter(id => id !== card.id);
@@ -464,6 +476,7 @@ export const Game: React.FC<{
             </button>
           )}
 
+          {/* Stronghold area: Visual only during playing phase. Cards must jump to hand to be playable. */}
           <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5">
              {[0, 1, 2].map((i) => (
                <div key={i} className="relative">
@@ -474,6 +487,7 @@ export const Game: React.FC<{
                          {...perspectivePlayer.faceUpCards[i]} 
                          selected={selectedCardIds.includes(perspectivePlayer.faceUpCards[i].id)} 
                          onClick={() => handleCardSelection(perspectivePlayer.faceUpCards[i], 'FACEUP')} 
+                         className={game.phase === 'PLAYING' ? 'cursor-default' : 'cursor-pointer'}
                        />
                     </div>
                   )}
