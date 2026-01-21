@@ -114,7 +114,6 @@ export const Game: React.FC<{
   }, [mode, game.players, currentPlayer]);
 
   // Rule Effect: Automatically pickup stronghold cards when hand has 1 card left and deck is empty
-  // This side effect ensures the jump happens immediately whenever the state satisfies the rule.
   useEffect(() => {
     if (game.phase !== 'PLAYING' || game.deck.length > 0) return;
 
@@ -178,6 +177,7 @@ export const Game: React.FC<{
           const nextPlayers = [...prev.players];
           const p = { ...nextPlayers[pIdx] };
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
+          // If blind siege fails, player picks up the card AND the pile
           p.hand = [...p.hand, cardToTest, ...prev.pile];
           nextPlayers[pIdx] = p;
           return {
@@ -230,13 +230,6 @@ export const Game: React.FC<{
       const needed = 3 - p.hand.length;
       if (needed > 0 && nextDeck.length > 0) {
         p.hand.push(...nextDeck.splice(0, Math.min(needed, nextDeck.length)));
-      }
-
-      // Check for immediate Stronghold reclaim if deck is dry and hand is low
-      if (p.hand.length <= 1 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
-        p.hand = [...p.hand, ...p.faceUpCards];
-        p.faceUpCards = [];
-        newLog += " (Stronghold Reclaimed!)";
       }
 
       nextPlayers[pIdx] = p;
@@ -339,8 +332,8 @@ export const Game: React.FC<{
       });
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING') {
-      // Rule Implementation: Cards in the Stronghold (FACEUP) cannot be manually selected.
-      // They MUST automatically move to the hand footer to be played.
+      // FACEUP cards (Stronghold) cannot be manually selected in PLAYING phase.
+      // They are automatically moved to hand when the player reaches 1 card.
       if (source === 'FACEUP') return;
 
       setSelectedCardIds(prev => {
@@ -354,7 +347,7 @@ export const Game: React.FC<{
           return [card.id];
         }
         const firstId = prev[0];
-        const pool = source === 'HAND' ? perspectivePlayer.hand : perspectivePlayer.faceUpCards;
+        const pool = perspectivePlayer.hand;
         const firstCard = pool?.find(c => c.id === firstId);
         if (firstCard && firstCard.rank !== card.rank) {
           setSelectedSource(source);
@@ -363,6 +356,15 @@ export const Game: React.FC<{
         setSelectedSource(source);
         return [...prev, card.id];
       });
+    }
+  };
+
+  const handleHiddenCardClick = (cardId: string) => {
+    if (!perspectivePlayer?.isHuman || game.turnIndex !== perspectivePlayer.id || game.phase !== 'PLAYING') return;
+    
+    // Blind Siege is only allowed when Hand and FaceUp cards are empty
+    if (perspectivePlayer.hand.length === 0 && perspectivePlayer.faceUpCards.length === 0) {
+       playCards([cardId], 'HIDDEN');
     }
   };
 
@@ -411,6 +413,11 @@ export const Game: React.FC<{
     return () => { clearTimeout(timer); botThinkingRef.current = false; };
   }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
 
+  const canPerformBlindSiege = perspectivePlayer?.isHuman && 
+                               perspectivePlayer?.hand.length === 0 && 
+                               perspectivePlayer?.faceUpCards.length === 0 && 
+                               game.turnIndex === perspectivePlayer?.id;
+
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
       <header className="h-10 shrink-0 flex items-center justify-between px-4 bg-slate-950/98 border-b border-white/5 z-[200]">
@@ -444,7 +451,7 @@ export const Game: React.FC<{
         <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-amber-500/30 px-8 py-2.5 rounded-full flex items-center gap-3 shadow-2xl backdrop-blur-xl z-50">
           <Crown size={14} className="text-amber-500 animate-pulse" />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">
-            {currentPlayer?.isHuman ? "Your Strategic Play" : `${currentPlayer?.name}'s Turn`}
+            {currentPlayer?.isHuman ? (canPerformBlindSiege ? "Blind Siege Authorized" : "Your Strategic Play") : `${currentPlayer?.name}'s Turn`}
           </span>
         </div>
 
@@ -476,11 +483,25 @@ export const Game: React.FC<{
             </button>
           )}
 
-          {/* Stronghold area: Visual only during playing phase. Cards must jump to hand to be playable. */}
+          {/* Stronghold area: Interactive Blind Siege cards rendered here when hand/faceUp empty */}
           <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5">
              {[0, 1, 2].map((i) => (
                <div key={i} className="relative">
-                  <PlayingCard faceDown className="opacity-40" />
+                  {/* The Blind Siege Card (Hidden) */}
+                  {perspectivePlayer?.hiddenCards[i] && (
+                    <div className="absolute inset-0 z-[80]">
+                       <PlayingCard 
+                         faceDown 
+                         onClick={() => handleHiddenCardClick(perspectivePlayer.hiddenCards[i].id)} 
+                         className={canPerformBlindSiege ? 'cursor-pointer hover:scale-110 hover:-translate-y-2 brightness-110' : 'opacity-40 cursor-default'}
+                       />
+                    </div>
+                  )}
+                  
+                  {/* Background slot visual */}
+                  <PlayingCard faceDown className="opacity-10" />
+
+                  {/* Face up cards (Front Layer) */}
                   {perspectivePlayer?.faceUpCards[i] && (
                     <div className="absolute -top-3 -right-3 z-[100] shadow-2xl">
                        <PlayingCard 
@@ -520,6 +541,11 @@ export const Game: React.FC<{
                   }} 
                 />
               ))}
+              {perspectivePlayer?.hand.length === 0 && (
+                <div className="text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] mb-12 animate-pulse">
+                   Empty Treasury - Deploy Stronghold
+                </div>
+              )}
            </div>
         </div>
       </footer>
