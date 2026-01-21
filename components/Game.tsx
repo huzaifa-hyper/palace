@@ -68,6 +68,7 @@ export const Game: React.FC<{
     
     for (let i = 0; i < actualCount; i++) {
       const isHuman = mode === 'PASS_AND_PLAY' || i === 0;
+      // Consistent Naming: 2 players = 1 opponent, etc.
       let pName = isHuman ? (i === 0 ? userProfile.name : `Ruler ${i + 1}`) : `Opponent ${i}`;
 
       initialPlayers.push({
@@ -101,8 +102,8 @@ export const Game: React.FC<{
 
   const currentPlayer = game.players[game.turnIndex];
   
-  // Perspective Logic: In VS_BOT mode, the UI footer always shows Player 0's hand.
-  // In PASS_AND_PLAY, it shows the current player's hand.
+  // Strict Visibility: In VS_BOT mode, the UI always shows Player 0 (The User).
+  // Opponent cards are never revealed in the footer.
   const perspectivePlayer = useMemo(() => {
     if (mode === 'VS_BOT') return game.players[0];
     return currentPlayer;
@@ -110,8 +111,13 @@ export const Game: React.FC<{
 
   const isLegalMove = (card: Card, currentPile: Card[], constraint: 'NONE' | 'LOWER_THAN_7'): boolean => {
     if (!card) return false;
-    if (card.rank === Rank.Two || card.rank === Rank.Ten) return true;
+    // Power Cards: 2, 7, and 10 can be thrown on ANY card
+    if (card.rank === Rank.Two || card.rank === Rank.Seven || card.rank === Rank.Ten) return true;
+    
+    // Constraint logic
     if (constraint === 'LOWER_THAN_7') return card.value <= 7;
+    
+    // Default high-card logic
     if (currentPile.length === 0) return true;
     const topCard = currentPile[currentPile.length - 1];
     if (topCard.rank === Rank.Two) return true;
@@ -135,6 +141,7 @@ export const Game: React.FC<{
 
       if (!isLegal) {
         if (source === 'HIDDEN') {
+          // Failed Blind Siege
           audioService.playError();
           const nextPlayers = [...prev.players];
           const p = { ...nextPlayers[pIdx] };
@@ -170,12 +177,13 @@ export const Game: React.FC<{
         newLog = `${player.name} BURNED the pile! 🔥`;
       } else if (rank === Rank.Two) {
         audioService.playReset();
-        nextIdx = pIdx; 
+        nextIdx = pIdx; // Power Play: Goes again
         nextConstraint = 'NONE';
-        newLog = `${player.name} reset. Go again! 🔄`;
+        newLog = `${player.name} reset the pile. Play again! 🔄`;
       } else if (rank === Rank.Seven) {
         audioService.playCardPlace();
-        nextConstraint = 'LOWER_THAN_7';
+        nextConstraint = 'LOWER_THAN_7'; // Power Play: Imposes constraint
+        newLog = `${player.name} used The Lowering (7). Next player must play ≤ 7!`;
       } else {
         audioService.playCardPlace();
       }
@@ -192,11 +200,11 @@ export const Game: React.FC<{
         p.hand.push(...nextDeck.splice(0, Math.min(needed, nextDeck.length)));
       }
 
-      // Seamless Transition: If hand is now 0, automatically pick up Stronghold
+      // Instant Transition: When hand becomes 0 and deck is dry, immediately grab Stronghold cards.
       if (p.hand.length === 0 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
         p.hand = [...p.faceUpCards];
         p.faceUpCards = [];
-        newLog += " (Stronghold Activated!)";
+        newLog += " (Picked up Stronghold!)";
       }
 
       nextPlayers[pIdx] = p;
@@ -264,6 +272,7 @@ export const Game: React.FC<{
         for (let i = 1; i < nextPlayers.length; i++) {
           if (nextPlayers[i].isHuman) continue;
           const b = { ...nextPlayers[i] };
+          // Strategic Setup: Bots choose their 3 highest cards for Stronghold
           const sorted = [...b.hand].sort((x, y) => y.value - x.value);
           b.faceUpCards = sorted.slice(0, 3);
           b.hand = sorted.slice(3);
@@ -287,6 +296,7 @@ export const Game: React.FC<{
   };
 
   const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
+    // Selection logic: Can only select cards for the player we are viewing (perspective)
     if (!perspectivePlayer?.isHuman || (mode === 'VS_BOT' && game.turnIndex !== 0)) return;
 
     if (game.phase === 'SETUP') {
@@ -321,7 +331,7 @@ export const Game: React.FC<{
     }
   };
 
-  // Tactical Bot logic
+  // Improved Bot logic for intelligent play
   useEffect(() => {
     const isBotTurn = game.phase === 'PLAYING' && currentPlayer && !currentPlayer.isHuman && !game.winner;
     if (!isBotTurn || botThinkingRef.current || lastProcessedActionRef.current === game.actionCount) return;
@@ -345,18 +355,26 @@ export const Game: React.FC<{
       const legal = pool.filter(c => isLegalMove(c, game.pile, game.activeConstraint));
 
       if (legal.length > 0) {
+        // Find sets (groups of same rank)
         const groups: Record<string, Card[]> = {};
         legal.forEach(c => { groups[c.rank] = groups[c.rank] || []; groups[c.rank].push(c); });
         
         const sortedRanks = Object.keys(groups).sort((a, b) => getCardValue(a as Rank) - getCardValue(b as Rank));
         
         let bestRank = sortedRanks[0];
-        // Strategy: Burn high piles
-        if (groups[Rank.Ten] && game.pile.length >= 4) bestRank = Rank.Ten;
-        // Strategy: Save power cards if we have trash
-        else if (sortedRanks.length > 1 && (bestRank === Rank.Two || bestRank === Rank.Ten)) {
-          const trash = sortedRanks.find(r => r !== Rank.Two && r !== Rank.Ten && r !== Rank.Ace);
-          if (trash) bestRank = trash;
+        
+        // Strategy 1: Use 10 to clear big piles
+        if (groups[Rank.Ten] && game.pile.length >= 4) {
+          bestRank = Rank.Ten;
+        }
+        // Strategy 2: Save power cards (2, 7, 10, Ace) if we have regular trash to play
+        else if (sortedRanks.length > 1 && [Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(bestRank as Rank)) {
+          const regularTrash = sortedRanks.find(r => ![Rank.Two, Rank.Seven, Rank.Ten, Rank.Ace].includes(r as Rank));
+          if (regularTrash) bestRank = regularTrash;
+        }
+        // Strategy 3: Play 7 if the next player has few cards left (to sabotage them)
+        else if (groups[Rank.Seven] && game.players[(game.turnIndex + 1) % game.players.length].hand.length < 3) {
+          bestRank = Rank.Seven;
         }
 
         playCards(groups[bestRank].map(c => c.id), source);
@@ -381,6 +399,7 @@ export const Game: React.FC<{
         </div>
       </header>
 
+      {/* Rulers Hub */}
       <div className="h-14 shrink-0 flex items-center justify-center gap-6 bg-slate-950/40 border-b border-white/5 overflow-x-auto no-scrollbar px-4">
         {game.players.map(p => (
           <div key={p.id} className={`flex items-center gap-3 transition-all ${game.turnIndex === p.id ? 'opacity-100 scale-105' : 'opacity-40'}`}>
@@ -402,7 +421,7 @@ export const Game: React.FC<{
         <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-amber-500/30 px-8 py-2.5 rounded-full flex items-center gap-3 shadow-2xl backdrop-blur-xl z-50">
           <Crown size={14} className="text-amber-500 animate-pulse" />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">
-            {currentPlayer?.isHuman ? "Ruler's Choice" : `${currentPlayer?.name} is thinking...`}
+            {currentPlayer?.isHuman ? "Ruler's Choice" : `${currentPlayer?.name} is playing...`}
           </span>
         </div>
 
@@ -423,6 +442,7 @@ export const Game: React.FC<{
           </div>
         </div>
 
+        {/* Action Controls & Stronghold Cards */}
         <div className="w-full shrink-0 flex flex-col items-center gap-4 pb-4">
           {selectedCardIds.length > 0 && (
             <button 
@@ -453,8 +473,9 @@ export const Game: React.FC<{
         </div>
       </main>
 
+      {/* Perspective Hand Footer */}
       <footer className="h-56 md:h-64 bg-slate-950 border-t border-white/10 flex items-center justify-center shrink-0 relative">
-        {game.phase === 'PLAYING' && game.turnIndex === perspectivePlayer?.id && (
+        {game.phase === 'PLAYING' && game.turnIndex === perspectivePlayer?.id && perspectivePlayer.isHuman && (
            <button onClick={pickUpPile} className="absolute -top-10 left-6 bg-rose-600 text-white font-black text-[9px] px-5 py-2.5 rounded-xl border-b-4 border-rose-800 uppercase tracking-widest z-[310] transition-all active:translate-y-0.5 active:border-b-0">
              Inherit Pile
            </button>
@@ -468,7 +489,7 @@ export const Game: React.FC<{
                   {...card} 
                   selected={selectedCardIds.includes(card.id)} 
                   onClick={() => handleCardSelection(card, 'HAND')}
-                  highlight={perspectivePlayer.id === game.turnIndex && isLegalMove(card, game.pile, game.activeConstraint)}
+                  highlight={perspectivePlayer.id === game.turnIndex && perspectivePlayer.isHuman && isLegalMove(card, game.pile, game.activeConstraint)}
                   style={{ 
                     marginLeft: i === 0 ? '0' : '-2.5rem',
                     transform: selectedCardIds.includes(card.id) ? 'translateY(-1.5rem)' : 'translateY(0)',
@@ -484,8 +505,8 @@ export const Game: React.FC<{
         <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center z-[1000] p-8">
            <div className="bg-slate-900 border border-amber-500/30 p-16 rounded-[4rem] text-center shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-500">
               <Trophy size={64} className="text-amber-500 mx-auto mb-8" />
-              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase">Claimed</h2>
-              <p className="text-amber-400 font-black uppercase tracking-[0.3em] text-[10px] mb-12">{game.winner} Wins</p>
+              <h2 className="text-4xl font-playfair font-black text-white mb-2 uppercase">The Throne</h2>
+              <p className="text-amber-400 font-black uppercase tracking-[0.3em] text-[10px] mb-12">{game.winner} has Won</p>
               <button onClick={onExit} className="w-full bg-amber-500 text-slate-950 font-black py-5 rounded-3xl uppercase tracking-widest text-xs">Return to Lobby</button>
            </div>
         </div>
