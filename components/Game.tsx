@@ -102,7 +102,7 @@ export const Game: React.FC<{
   });
 
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
-  const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | null>(null);
+  const [selectedSource, setSelectedSource] = useState<'HAND' | 'FACEUP' | 'HIDDEN' | null>(null);
   const botThinkingRef = useRef(false);
   const lastProcessedActionRef = useRef<number>(-1);
 
@@ -113,7 +113,15 @@ export const Game: React.FC<{
     return currentPlayer;
   }, [mode, game.players, currentPlayer]);
 
-  // Rule Effect: Automatically pickup stronghold cards when hand has 1 card left and deck is empty
+  const canPerformBlindSiege = useMemo(() => {
+    return perspectivePlayer?.isHuman && 
+           perspectivePlayer?.hand.length === 0 && 
+           perspectivePlayer?.faceUpCards.length === 0 && 
+           game.turnIndex === perspectivePlayer?.id &&
+           game.phase === 'PLAYING';
+  }, [perspectivePlayer, game.turnIndex, game.phase]);
+
+  // Rule Effect: Automatically pickup stronghold cards when hand is low and deck is empty
   useEffect(() => {
     if (game.phase !== 'PLAYING' || game.deck.length > 0) return;
 
@@ -177,7 +185,6 @@ export const Game: React.FC<{
           const nextPlayers = [...prev.players];
           const p = { ...nextPlayers[pIdx] };
           p.hiddenCards = p.hiddenCards.filter(c => !cardIds.includes(c.id));
-          // If blind siege fails, player picks up the card AND the pile
           p.hand = [...p.hand, cardToTest, ...prev.pile];
           nextPlayers[pIdx] = p;
           return {
@@ -230,6 +237,13 @@ export const Game: React.FC<{
       const needed = 3 - p.hand.length;
       if (needed > 0 && nextDeck.length > 0) {
         p.hand.push(...nextDeck.splice(0, Math.min(needed, nextDeck.length)));
+      }
+
+      // Reclaim check
+      if (p.hand.length <= 1 && nextDeck.length === 0 && p.faceUpCards.length > 0) {
+        p.hand = [...p.hand, ...p.faceUpCards];
+        p.faceUpCards = [];
+        newLog += " (Stronghold Fortifications Reclaimed!)";
       }
 
       nextPlayers[pIdx] = p;
@@ -319,7 +333,7 @@ export const Game: React.FC<{
     setSelectedSource(null);
   };
 
-  const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP') => {
+  const handleCardSelection = (card: Card, source: 'HAND' | 'FACEUP' | 'HIDDEN') => {
     if (!perspectivePlayer?.isHuman) return;
     if (mode === 'VS_BOT' && game.turnIndex !== 0) return;
 
@@ -332,9 +346,23 @@ export const Game: React.FC<{
       });
       setSelectedSource('HAND');
     } else if (game.phase === 'PLAYING') {
-      // FACEUP cards (Stronghold) cannot be manually selected in PLAYING phase.
-      // They are automatically moved to hand when the player reaches 1 card.
-      if (source === 'FACEUP') return;
+      // In the Skirmish:
+      // 1. If it's the Blind Siege (hand & faceUp empty), only allow selecting ONE HIDDEN card.
+      // 2. Otherwise, only allow selecting matching ranks from the HAND.
+      
+      if (source === 'FACEUP') return; // FaceUp cards are automatically reclaimed to hand.
+
+      if (canPerformBlindSiege) {
+        if (source !== 'HIDDEN') return;
+        setSelectedCardIds(prev => {
+           if (prev.includes(card.id)) { setSelectedSource(null); return []; }
+           setSelectedSource('HIDDEN');
+           return [card.id]; // Only 1 hidden card at a time.
+        });
+        return;
+      }
+
+      if (source !== 'HAND') return;
 
       setSelectedCardIds(prev => {
         if (prev.includes(card.id)) {
@@ -347,8 +375,7 @@ export const Game: React.FC<{
           return [card.id];
         }
         const firstId = prev[0];
-        const pool = perspectivePlayer.hand;
-        const firstCard = pool?.find(c => c.id === firstId);
+        const firstCard = perspectivePlayer.hand.find(c => c.id === firstId);
         if (firstCard && firstCard.rank !== card.rank) {
           setSelectedSource(source);
           return [card.id];
@@ -356,15 +383,6 @@ export const Game: React.FC<{
         setSelectedSource(source);
         return [...prev, card.id];
       });
-    }
-  };
-
-  const handleHiddenCardClick = (cardId: string) => {
-    if (!perspectivePlayer?.isHuman || game.turnIndex !== perspectivePlayer.id || game.phase !== 'PLAYING') return;
-    
-    // Blind Siege is only allowed when Hand and FaceUp cards are empty
-    if (perspectivePlayer.hand.length === 0 && perspectivePlayer.faceUpCards.length === 0) {
-       playCards([cardId], 'HIDDEN');
     }
   };
 
@@ -412,11 +430,6 @@ export const Game: React.FC<{
 
     return () => { clearTimeout(timer); botThinkingRef.current = false; };
   }, [game.turnIndex, game.phase, game.winner, game.actionCount]);
-
-  const canPerformBlindSiege = perspectivePlayer?.isHuman && 
-                               perspectivePlayer?.hand.length === 0 && 
-                               perspectivePlayer?.faceUpCards.length === 0 && 
-                               game.turnIndex === perspectivePlayer?.id;
 
   return (
     <div className="flex flex-col h-screen w-full bg-felt relative overflow-hidden select-none text-slate-100">
@@ -479,11 +492,10 @@ export const Game: React.FC<{
               disabled={game.phase === 'SETUP' && selectedCardIds.length !== 3}
               className="px-10 py-3.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-[10px] uppercase tracking-[0.3em] shadow-2xl transition-all border-b-4 border-amber-600 active:translate-y-1 active:border-b-0"
             >
-              {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : 'Execute Move'}
+              {game.phase === 'SETUP' ? `Confirm Stronghold (${selectedCardIds.length}/3)` : (selectedSource === 'HIDDEN' ? 'Execute Blind Play' : 'Execute Move')}
             </button>
           )}
 
-          {/* Stronghold area: Interactive Blind Siege cards rendered here when hand/faceUp empty */}
           <div className="flex justify-center gap-4 p-4 bg-slate-900/40 rounded-[2.5rem] border border-white/5">
              {[0, 1, 2].map((i) => (
                <div key={i} className="relative">
@@ -492,8 +504,9 @@ export const Game: React.FC<{
                     <div className="absolute inset-0 z-[80]">
                        <PlayingCard 
                          faceDown 
-                         onClick={() => handleHiddenCardClick(perspectivePlayer.hiddenCards[i].id)} 
-                         className={canPerformBlindSiege ? 'cursor-pointer hover:scale-110 hover:-translate-y-2 brightness-110' : 'opacity-40 cursor-default'}
+                         selected={selectedCardIds.includes(perspectivePlayer.hiddenCards[i].id)}
+                         onClick={() => handleCardSelection(perspectivePlayer.hiddenCards[i], 'HIDDEN')} 
+                         className={canPerformBlindSiege ? 'cursor-pointer hover:scale-110 brightness-110' : 'opacity-40 cursor-default'}
                        />
                     </div>
                   )}
@@ -501,12 +514,11 @@ export const Game: React.FC<{
                   {/* Background slot visual */}
                   <PlayingCard faceDown className="opacity-10" />
 
-                  {/* Face up cards (Front Layer) */}
+                  {/* Face up cards (Automatic reclaim) */}
                   {perspectivePlayer?.faceUpCards[i] && (
                     <div className="absolute -top-3 -right-3 z-[100] shadow-2xl">
                        <PlayingCard 
                          {...perspectivePlayer.faceUpCards[i]} 
-                         selected={selectedCardIds.includes(perspectivePlayer.faceUpCards[i].id)} 
                          onClick={() => handleCardSelection(perspectivePlayer.faceUpCards[i], 'FACEUP')} 
                          className={game.phase === 'PLAYING' ? 'cursor-default' : 'cursor-pointer'}
                        />
